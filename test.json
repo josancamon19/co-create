@@ -1,0 +1,82 @@
+{
+    "changes": [
+        {
+            "range": {
+                "start": {
+                    "line": 11,
+                    "character": 88
+                },
+                "end": {
+                    "line": 11,
+                    "character": 93
+                }
+            },
+            "rangeOffset": 348,
+            "rangeLength": 5,
+            "text": ""
+        },
+        {
+            "range": {
+                "start": {
+                    "line": 11,
+                    "character": 85
+                },
+                "end": {
+                    "line": 11,
+                    "character": 88
+                }
+            },
+            "rangeOffset": 345,
+            "rangeLength": 3,
+            "text": ""
+        },
+        {
+            "range": {
+                "start": {
+                    "line": 11,
+                    "character": 82
+                },
+                "end": {
+                    "line": 11,
+                    "character": 85
+                }
+            },
+            "rangeOffset": 342,
+            "rangeLength": 3,
+            "text": ""
+        },
+        {
+            "range": {
+                "start": {
+                    "line": 11,
+                    "character": 78
+                },
+                "end": {
+                    "line": 11,
+                    "character": 82
+                }
+            },
+            "rangeOffset": 338,
+            "rangeLength": 4,
+            "text": ""
+        },
+        {
+            "range": {
+                "start": {
+                    "line": 11,
+                    "character": 64
+                },
+                "end": {
+                    "line": 11,
+                    "character": 78
+                }
+            },
+            "rangeOffset": 324,
+            "rangeLength": 14,
+            "text": ""
+        }
+    ],
+    "contentChanges": 5,
+    "languageId": "json",
+    "lineCount": 23
+}

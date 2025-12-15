@@ -1,0 +1,70 @@
+{
+  "name": "cursor-interaction-collector",
+  "displayName": "Cursor Interaction Collector",
+  "description": "Collects all user interactions in Cursor/VS Code and stores them in a SQLite database",
+  "version": "0.1.0",
+  "publisher": "your-publisher-name",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cursor-collector.showStats",
+        "title": "Show Collection Stats"
+      },
+      {
+        "command": "cursor-collector.exportData",
+        "title": "Export Collected Data"
+      }
+    ],
+    "configuration": {
+      "title": "Cursor Interaction Collector",
+      "properties": {
+        "cursorCollector.sessionTimeoutMinutes": {
+          "type": "number",
+          "default": 120,
+          "description": "Minutes of inactivity before starting a new session"
+        },
+        "cursorCollector.chatPollIntervalMs": {
+          "type": "number",
+          "default": 5000,
+          "description": "Interval in milliseconds for polling Cursor chat data"
+        },
+        "cursorCollector.trackSelectionChanges": {
+          "type": "boolean",
+          "default": false,
+          "description": "Track cursor/selection changes (can generate many events)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./ && npm run copy-wasm",
+    "copy-wasm": "cp node_modules/sql.js/dist/sql-wasm.wasm out/",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-electron": "^2.3.8",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.2"
+  },
+  "dependencies": {
+    "sql.js": "^1.10.0"
+  }
+}
