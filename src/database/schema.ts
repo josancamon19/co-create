@@ -78,7 +78,7 @@ export interface Session {
 export interface Diff {
   id: number;
   session_id: number;
-  source: 'human' | 'agent';
+  source: 'human' | 'agent' | 'tab-completion';
   file_path: string;
   diff: string;
   lines_added: number;

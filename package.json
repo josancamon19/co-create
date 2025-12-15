@@ -15,6 +15,23 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "keybindings": [
+      {
+        "key": "tab",
+        "command": "cursorCollector.wrap.editor.action.inlineSuggest.commit",
+        "when": "inlineSuggestionVisible && !editorReadonly && !suggestWidgetVisible"
+      },
+      {
+        "key": "ctrl+right",
+        "command": "cursorCollector.wrap.editor.action.inlineSuggest.acceptWord",
+        "when": "inlineSuggestionVisible && !editorReadonly"
+      },
+      {
+        "key": "cmd+right",
+        "command": "cursorCollector.wrap.editor.action.inlineSuggest.acceptNextLine",
+        "when": "inlineSuggestionVisible && !editorReadonly"
+      }
+    ],
     "commands": [
       {
         "command": "cursor-collector.showStats",

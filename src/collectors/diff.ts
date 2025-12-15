@@ -11,6 +11,8 @@ interface FileState {
   timeout: NodeJS.Timeout | null;
   // Track if agent was active during ANY change in this batch
   hadAgentActivity: boolean;
+  // Track if tab completion was used during this batch
+  hadTabCompletion: boolean;
 }
 
 export class DiffCollector extends BaseCollector {
@@ -18,6 +20,8 @@ export class DiffCollector extends BaseCollector {
 
   private fileStates: Map<string, FileState> = new Map();
   private activeFile: string | null = null;
+  // Track if a tab completion just happened (set by command wrapper, cleared after change)
+  private pendingTabCompletion: boolean = false;
 
   register(context: vscode.ExtensionContext): void {
     // Track active editor changes (file switch)
@@ -65,6 +69,9 @@ export class DiffCollector extends BaseCollector {
 
     this.addDisposable(watcher);
 
+    // Register command wrappers to detect tab completions
+    this.registerTabCompletionTracking(context);
+
     // Initialize with current active editor
     if (vscode.window.activeTextEditor) {
       const doc = vscode.window.activeTextEditor.document;
@@ -76,6 +83,60 @@ export class DiffCollector extends BaseCollector {
 
     context.subscriptions.push(...this.disposables);
     this.log('Registered');
+  }
+
+  /**
+   * Register command wrappers to detect when tab completions are accepted
+   */
+  private registerTabCompletionTracking(context: vscode.ExtensionContext): void {
+    // Commands that accept inline suggestions (Cursor/Copilot style ghost text)
+    const tabCompletionCommands = [
+      'editor.action.inlineSuggest.commit',      // Accept inline suggestion
+      'editor.action.inlineSuggest.acceptWord',  // Accept word from inline suggestion
+      'editor.action.inlineSuggest.acceptNextLine', // Accept line from inline suggestion
+    ];
+
+    for (const commandId of tabCompletionCommands) {
+      // Create a wrapper that marks tab completion before executing the original command
+      const wrapper = vscode.commands.registerCommand(
+        `cursorCollector.wrap.${commandId}`,
+        async () => {
+          this.log(`Tab completion command: ${commandId}`);
+          this.pendingTabCompletion = true;
+
+          // Execute the original command
+          try {
+            await vscode.commands.executeCommand(commandId);
+          } catch (e) {
+            // Command might not exist or fail, that's ok
+          }
+
+          // Clear the flag after a short delay if no change was detected
+          setTimeout(() => {
+            this.pendingTabCompletion = false;
+          }, 100);
+        }
+      );
+
+      this.addDisposable(wrapper);
+    }
+
+    // Register keybinding overrides for Tab key when suggestions are visible
+    // This is done via package.json keybindings, but we can detect via the commands above
+    this.log('Tab completion tracking registered');
+  }
+
+  /**
+   * Mark that a tab completion just happened for the current file
+   */
+  markTabCompletion(): void {
+    if (this.activeFile) {
+      const state = this.fileStates.get(this.activeFile);
+      if (state) {
+        state.hadTabCompletion = true;
+        this.log(`Tab completion marked for ${this.activeFile}`);
+      }
+    }
   }
 
   private shouldTrack(document: vscode.TextDocument): boolean {
@@ -98,6 +159,7 @@ export class DiffCollector extends BaseCollector {
         current: document.getText(),
         timeout: null,
         hadAgentActivity: false,
+        hadTabCompletion: false,
       });
     }
   }
@@ -218,9 +280,35 @@ export class DiffCollector extends BaseCollector {
     // Update current content
     state.current = document.getText();
 
+    // Check if this change was from a tab completion (explicit via command wrapper)
+    let explicitTabCompletion = false;
+    if (this.pendingTabCompletion) {
+      state.hadTabCompletion = true;
+      explicitTabCompletion = true;
+      this.pendingTabCompletion = false;
+      this.log(`Tab completion detected for ${path}`);
+    } else {
+      // Additional heuristic: if a single change added many characters (>10) at once,
+      // it's likely an autocomplete, not manual typing
+      for (const change of event.contentChanges) {
+        const addedChars = change.text.length;
+        const removedChars = change.rangeLength;
+        // If we added significantly more than we removed and it's substantial
+        if (addedChars > 10 && addedChars > removedChars * 2) {
+          // Check if it's not from agent activity
+          if (!agentMonitor.isAgentActive()) {
+            state.hadTabCompletion = true;
+            this.log(`Tab completion (heuristic) detected for ${path}: +${addedChars} chars`);
+          }
+        }
+      }
+    }
+
     // Capture agent activity at change time, not flush time
     // This is critical for Cmd+K inline edits where user accepts after AI generates
-    if (agentMonitor.isAgentActive()) {
+    // BUT: Don't override explicit tab completion detection - accepting a ghost text
+    // suggestion is a specific user action that shouldn't be classified as agent activity
+    if (agentMonitor.isAgentActive() && !explicitTabCompletion) {
       state.hadAgentActivity = true;
       this.log(`Agent activity captured for ${path}`);
     }
@@ -247,18 +335,27 @@ export class DiffCollector extends BaseCollector {
 
     // Skip if no changes
     if (state.baseline === state.current) {
-      // Reset agent activity flag even if no diff
+      // Reset flags even if no diff
       state.hadAgentActivity = false;
+      state.hadTabCompletion = false;
       return;
     }
 
     // Compute diff
     const diff = this.computeDiff(state.baseline, state.current);
 
-    // Determine source: use captured activity OR current activity
-    // hadAgentActivity captures if agent was active when changes were made
-    // This is important for Cmd+K where user accepts changes after AI generates
-    const source = state.hadAgentActivity ? 'agent' : agentMonitor.getSource();
+    // Determine source with priority:
+    // 1. Agent activity (Cmd+K, composer) takes highest priority
+    // 2. Tab completion (human-agent collaboration)
+    // 3. Human (pure manual edits)
+    let source: 'human' | 'agent' | 'tab-completion';
+    if (state.hadAgentActivity) {
+      source = 'agent';
+    } else if (state.hadTabCompletion) {
+      source = 'tab-completion';
+    } else {
+      source = agentMonitor.isAgentActive() ? 'agent' : 'human';
+    }
 
     // Record
     sessionManager.recordDiff({
@@ -271,9 +368,10 @@ export class DiffCollector extends BaseCollector {
 
     this.log(`Recorded ${source} diff for ${filePath} (+${diff.added}/-${diff.removed})`);
 
-    // Update baseline and reset agent activity flag
+    // Update baseline and reset flags
     state.baseline = state.current;
     state.hadAgentActivity = false;
+    state.hadTabCompletion = false;
   }
 
   private computeDiff(oldText: string, newText: string): { text: string; added: number; removed: number } {

@@ -3,7 +3,7 @@ import { Diff } from '../schema';
 
 export interface DiffInput {
   sessionId: number;
-  source: 'human' | 'agent';
+  source: 'human' | 'agent' | 'tab-completion';
   filePath: string;
   diff: string;
   linesAdded: number;
@@ -41,7 +41,7 @@ export class DiffRepository {
     return result[0].values.map((row) => ({
       id: row[0] as number,
       session_id: row[1] as number,
-      source: row[2] as 'human' | 'agent',
+      source: row[2] as 'human' | 'agent' | 'tab-completion',
       file_path: row[3] as string,
       diff: row[4] as string,
       lines_added: row[5] as number,
@@ -64,7 +64,7 @@ export class DiffRepository {
     return {
       id: row[0] as number,
       session_id: row[1] as number,
-      source: row[2] as 'human' | 'agent',
+      source: row[2] as 'human' | 'agent' | 'tab-completion',
       file_path: row[3] as string,
       diff: row[4] as string,
       lines_added: row[5] as number,
