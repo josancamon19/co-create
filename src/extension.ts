@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import { sessionManager } from './session/manager';
 import { diffCollector } from './collectors/diff';
+import { agentMonitor } from './agent/monitor';
 import { ICollector } from './collectors/base';
+import { getAllCursorKeys, getCursorDbPath } from './utils/cursor-db';
 
 const collectors: ICollector[] = [
   diffCollector,
@@ -19,6 +21,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       console.log('[Cursor Interaction Collector] No workspace detected, collector disabled');
       return;
     }
+
+    // Start agent activity monitor
+    agentMonitor.start();
 
     // Register all collectors
     for (const collector of collectors) {
@@ -71,6 +76,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('cursor-collector.exportData', () => {
       exportData();
+    })
+  );
+
+  // Debug: show Cursor DB keys
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cursor-collector.debugCursorDb', async () => {
+      await debugCursorDb();
     })
   );
 }
@@ -129,6 +141,49 @@ async function exportData(): Promise<void> {
   }
 }
 
+async function debugCursorDb(): Promise<void> {
+  const dbPath = getCursorDbPath();
+
+  if (!dbPath) {
+    vscode.window.showErrorMessage('Could not find Cursor state database');
+    return;
+  }
+
+  const keys = await getAllCursorKeys();
+
+  if (keys.length === 0) {
+    vscode.window.showErrorMessage('No keys found in Cursor database or failed to read');
+    return;
+  }
+
+  // Filter for interesting keys (chat, composer, ai related)
+  const interestingKeys = keys.filter(k =>
+    k.toLowerCase().includes('chat') ||
+    k.toLowerCase().includes('composer') ||
+    k.toLowerCase().includes('ai') ||
+    k.toLowerCase().includes('prompt') ||
+    k.toLowerCase().includes('conversation')
+  );
+
+  const output = `
+Cursor DB Path: ${dbPath}
+
+Total keys: ${keys.length}
+
+Interesting keys (chat/composer/ai related):
+${interestingKeys.length > 0 ? interestingKeys.join('\n') : 'None found'}
+
+All keys:
+${keys.join('\n')}
+  `.trim();
+
+  // Show in output channel
+  const channel = vscode.window.createOutputChannel('Cursor DB Debug');
+  channel.clear();
+  channel.appendLine(output);
+  channel.show();
+}
+
 function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -145,6 +200,9 @@ function formatDuration(ms: number): string {
 
 export function deactivate(): void {
   console.log('[Cursor Interaction Collector] Deactivating...');
+
+  // Stop agent monitor
+  agentMonitor.stop();
 
   // Dispose all collectors
   for (const collector of collectors) {

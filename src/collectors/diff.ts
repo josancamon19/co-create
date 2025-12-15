@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { BaseCollector } from './base';
 import { sessionManager } from '../session/manager';
+import { agentMonitor } from '../agent/monitor';
 
 const DEBOUNCE_MS = 5000; // 5 seconds of inactivity triggers diff
 
@@ -114,6 +115,8 @@ export class DiffCollector extends BaseCollector {
     const path = uri.fsPath;
     if (!this.shouldTrackPath(path)) return;
 
+    const source = agentMonitor.getSource();
+
     // Read the new file content
     try {
       const content = await vscode.workspace.fs.readFile(uri);
@@ -124,18 +127,18 @@ export class DiffCollector extends BaseCollector {
       const diffLines = lines.map(line => `+ ${line}`);
 
       sessionManager.recordDiff({
-        source: 'human',
+        source,
         filePath: path,
         diff: `[FILE CREATED]\n${diffLines.join('\n')}`,
         linesAdded: lines.length,
         linesRemoved: 0,
       });
 
-      this.log(`Recorded file create: ${path}`);
+      this.log(`Recorded ${source} file create: ${path}`);
     } catch {
       // File might be binary or unreadable
       sessionManager.recordDiff({
-        source: 'human',
+        source,
         filePath: path,
         diff: '[FILE CREATED]',
         linesAdded: 0,
@@ -148,6 +151,8 @@ export class DiffCollector extends BaseCollector {
     const path = uri.fsPath;
     if (!this.shouldTrackPath(path)) return;
 
+    const source = agentMonitor.getSource();
+
     // Check if we have baseline content
     const state = this.fileStates.get(path);
 
@@ -157,7 +162,7 @@ export class DiffCollector extends BaseCollector {
       const diffLines = lines.map(line => `- ${line}`);
 
       sessionManager.recordDiff({
-        source: 'human',
+        source,
         filePath: path,
         diff: `[FILE DELETED]\n${diffLines.join('\n')}`,
         linesAdded: 0,
@@ -170,7 +175,7 @@ export class DiffCollector extends BaseCollector {
     } else {
       // No content tracked - just record the deletion
       sessionManager.recordDiff({
-        source: 'human',
+        source,
         filePath: path,
         diff: '[FILE DELETED]',
         linesAdded: 0,
@@ -178,7 +183,7 @@ export class DiffCollector extends BaseCollector {
       });
     }
 
-    this.log(`Recorded file delete: ${path}`);
+    this.log(`Recorded ${source} file delete: ${path}`);
   }
 
   private onFileSwitch(editor: vscode.TextEditor | undefined): void {
@@ -236,16 +241,19 @@ export class DiffCollector extends BaseCollector {
     // Compute diff
     const diff = this.computeDiff(state.baseline, state.current);
 
+    // Determine source based on agent activity
+    const source = agentMonitor.getSource();
+
     // Record
     sessionManager.recordDiff({
-      source: 'human',
+      source,
       filePath,
       diff: diff.text,
       linesAdded: diff.added,
       linesRemoved: diff.removed,
     });
 
-    this.log(`Recorded diff for ${filePath} (+${diff.added}/-${diff.removed})`);
+    this.log(`Recorded ${source} diff for ${filePath} (+${diff.added}/-${diff.removed})`);
 
     // Update baseline
     state.baseline = state.current;
