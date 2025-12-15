@@ -9,6 +9,8 @@ interface FileState {
   baseline: string;
   current: string;
   timeout: NodeJS.Timeout | null;
+  // Track if agent was active during ANY change in this batch
+  hadAgentActivity: boolean;
 }
 
 export class DiffCollector extends BaseCollector {
@@ -95,6 +97,7 @@ export class DiffCollector extends BaseCollector {
         baseline: document.getText(),
         current: document.getText(),
         timeout: null,
+        hadAgentActivity: false,
       });
     }
   }
@@ -215,6 +218,13 @@ export class DiffCollector extends BaseCollector {
     // Update current content
     state.current = document.getText();
 
+    // Capture agent activity at change time, not flush time
+    // This is critical for Cmd+K inline edits where user accepts after AI generates
+    if (agentMonitor.isAgentActive()) {
+      state.hadAgentActivity = true;
+      this.log(`Agent activity captured for ${path}`);
+    }
+
     // Reset debounce timer
     if (state.timeout) {
       clearTimeout(state.timeout);
@@ -236,13 +246,19 @@ export class DiffCollector extends BaseCollector {
     }
 
     // Skip if no changes
-    if (state.baseline === state.current) return;
+    if (state.baseline === state.current) {
+      // Reset agent activity flag even if no diff
+      state.hadAgentActivity = false;
+      return;
+    }
 
     // Compute diff
     const diff = this.computeDiff(state.baseline, state.current);
 
-    // Determine source based on agent activity
-    const source = agentMonitor.getSource();
+    // Determine source: use captured activity OR current activity
+    // hadAgentActivity captures if agent was active when changes were made
+    // This is important for Cmd+K where user accepts changes after AI generates
+    const source = state.hadAgentActivity ? 'agent' : agentMonitor.getSource();
 
     // Record
     sessionManager.recordDiff({
@@ -255,8 +271,9 @@ export class DiffCollector extends BaseCollector {
 
     this.log(`Recorded ${source} diff for ${filePath} (+${diff.added}/-${diff.removed})`);
 
-    // Update baseline
+    // Update baseline and reset agent activity flag
     state.baseline = state.current;
+    state.hadAgentActivity = false;
   }
 
   private computeDiff(oldText: string, newText: string): { text: string; added: number; removed: number } {

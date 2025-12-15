@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
-import { getMostRecentAIBubbleTime, getAIBubbleCount } from '../utils/cursor-db';
+import { getMostRecentAIBubbleTime, getAIBubbleCount, getInlineDiffCount, getMostRecentAIGenerationTime } from '../utils/cursor-db';
 
 // How long to consider "agent is active" after detecting AI activity
-const AGENT_ACTIVITY_WINDOW_MS = 10000; // 10 seconds
+// Increased to 30 seconds to handle Cmd+K inline edits where user may review before accepting
+const AGENT_ACTIVITY_WINDOW_MS = 30000; // 30 seconds
 
 export class AgentActivityMonitor {
   private static instance: AgentActivityMonitor | null = null;
@@ -10,6 +11,8 @@ export class AgentActivityMonitor {
   private pollInterval: NodeJS.Timeout | null = null;
   private lastAgentActivityTime: number = 0;
   private lastKnownBubbleTimestamp: string | null = null;
+  private lastKnownInlineDiffCount: number = 0;
+  private lastKnownGenerationTime: number = 0;
   private isRunning: boolean = false;
   private pollIntervalMs: number;
 
@@ -75,38 +78,61 @@ export class AgentActivityMonitor {
   private async checkForAgentActivity(): Promise<void> {
     console.log('[AgentMonitor] Checking for agent activity...');
     try {
-      // Get the most recent AI bubble timestamp from cursorDiskKV
+      // Get the current workspace folder URI
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      const workspaceFolderUri = workspaceFolders?.[0]?.uri.toString() || '';
+
+      // PRIMARY: Check workspace-specific AI generations (captures Cmd+K and composer)
+      if (workspaceFolderUri) {
+        const mostRecentGenTime = await getMostRecentAIGenerationTime(workspaceFolderUri);
+        if (mostRecentGenTime) {
+          console.log('[AgentMonitor] Most recent AI generation:', new Date(mostRecentGenTime).toISOString());
+
+          if (mostRecentGenTime > this.lastKnownGenerationTime) {
+            const now = Date.now();
+            const ageMs = now - mostRecentGenTime;
+
+            // Only mark as active if the generation is recent (within 30 seconds)
+            if (ageMs < 30000) {
+              console.log('[AgentMonitor] New AI generation detected! Age:', Math.round(ageMs / 1000), 's');
+              this.markAgentActive();
+            } else {
+              console.log('[AgentMonitor] Generation is old (', Math.round(ageMs / 1000), 's), not marking as active');
+            }
+
+            this.lastKnownGenerationTime = mostRecentGenTime;
+          }
+        }
+      }
+
+      // SECONDARY: Also check global database for AI bubbles (composer activity)
       const mostRecentTimestamp = await getMostRecentAIBubbleTime();
-
       if (mostRecentTimestamp) {
-        console.log('[AgentMonitor] Most recent AI bubble:', mostRecentTimestamp);
-
-        // Check if this is a new bubble (timestamp changed)
         if (this.lastKnownBubbleTimestamp !== mostRecentTimestamp) {
-          console.log('[AgentMonitor] New AI activity detected! Previous:', this.lastKnownBubbleTimestamp);
-
-          // Check if the bubble is recent (within the last few seconds)
           const bubbleTime = new Date(mostRecentTimestamp).getTime();
           const now = Date.now();
           const ageMs = now - bubbleTime;
 
-          // Only mark as active if the bubble is very recent (within 30 seconds)
-          // This helps avoid false positives from old data on startup
           if (ageMs < 30000) {
+            console.log('[AgentMonitor] New AI bubble detected! Age:', Math.round(ageMs / 1000), 's');
             this.markAgentActive();
-          } else {
-            console.log('[AgentMonitor] Bubble is old (', Math.round(ageMs / 1000), 's), not marking as active');
           }
 
           this.lastKnownBubbleTimestamp = mostRecentTimestamp;
         }
-      } else {
-        console.log('[AgentMonitor] No AI bubbles found in cursorDiskKV');
       }
 
-      // Also log the total count for debugging
+      // TERTIARY: Check for inline diff activity
+      const inlineDiffCount = await getInlineDiffCount();
+      if (inlineDiffCount > this.lastKnownInlineDiffCount) {
+        console.log('[AgentMonitor] New inline diff detected! Count:', inlineDiffCount, 'Previous:', this.lastKnownInlineDiffCount);
+        this.markAgentActive();
+      }
+      this.lastKnownInlineDiffCount = inlineDiffCount;
+
+      // Log status
       const totalCount = await getAIBubbleCount();
-      console.log('[AgentMonitor] Total AI bubble count:', totalCount);
+      console.log('[AgentMonitor] Status - Bubbles:', totalCount, 'InlineDiffs:', inlineDiffCount, 'GenTime:', this.lastKnownGenerationTime);
 
     } catch (error) {
       console.error('[AgentMonitor] Error checking activity:', error);
