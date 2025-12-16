@@ -1,6 +1,6 @@
 import { Database as SqlJsDatabase } from 'sql.js';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 4;
 
 export function initializeSchema(db: SqlJsDatabase): void {
   // Create projects table
@@ -31,6 +31,9 @@ export function initializeSchema(db: SqlJsDatabase): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id INTEGER NOT NULL,
       source TEXT NOT NULL,
+      agent_subtype TEXT,
+      agent_model TEXT,
+      agent_prompt TEXT,
       file_path TEXT NOT NULL,
       diff TEXT NOT NULL,
       lines_added INTEGER DEFAULT 0,
@@ -40,6 +43,23 @@ export function initializeSchema(db: SqlJsDatabase): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id)
     )
   `);
+
+  // Migrations: Add columns if they don't exist (for existing databases)
+  try {
+    db.run(`ALTER TABLE diffs ADD COLUMN agent_subtype TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+  try {
+    db.run(`ALTER TABLE diffs ADD COLUMN agent_model TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+  try {
+    db.run(`ALTER TABLE diffs ADD COLUMN agent_prompt TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
 
   // Create indexes
   db.run(`CREATE INDEX IF NOT EXISTS idx_diffs_session ON diffs(session_id)`);
@@ -79,6 +99,9 @@ export interface Diff {
   id: number;
   session_id: number;
   source: 'human' | 'agent' | 'tab-completion';
+  agent_subtype: 'cmdk' | 'composer' | null;
+  agent_model: string | null;
+  agent_prompt: string | null;
   file_path: string;
   diff: string;
   lines_added: number;

@@ -4,6 +4,9 @@ import { Diff } from '../schema';
 export interface DiffInput {
   sessionId: number;
   source: 'human' | 'agent' | 'tab-completion';
+  agentSubtype?: 'cmdk' | 'composer' | null;
+  agentModel?: string | null;
+  agentPrompt?: string | null;
   filePath: string;
   diff: string;
   linesAdded: number;
@@ -15,10 +18,13 @@ export class DiffRepository {
   create(input: DiffInput): void {
     const db = dbConnection.getDatabase();
     db.run(
-      'INSERT INTO diffs (session_id, source, file_path, diff, lines_added, lines_removed, commit_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO diffs (session_id, source, agent_subtype, agent_model, agent_prompt, file_path, diff, lines_added, lines_removed, commit_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         input.sessionId,
         input.source,
+        input.agentSubtype ?? null,
+        input.agentModel ?? null,
+        input.agentPrompt ?? null,
         input.filePath,
         input.diff,
         input.linesAdded,
@@ -42,12 +48,15 @@ export class DiffRepository {
       id: row[0] as number,
       session_id: row[1] as number,
       source: row[2] as 'human' | 'agent' | 'tab-completion',
-      file_path: row[3] as string,
-      diff: row[4] as string,
-      lines_added: row[5] as number,
-      lines_removed: row[6] as number,
-      commit_id: row[7] as string | null,
-      timestamp: row[8] as string,
+      agent_subtype: row[3] as 'cmdk' | 'composer' | null,
+      agent_model: row[4] as string | null,
+      agent_prompt: row[5] as string | null,
+      file_path: row[6] as string,
+      diff: row[7] as string,
+      lines_added: row[8] as number,
+      lines_removed: row[9] as number,
+      commit_id: row[10] as string | null,
+      timestamp: row[11] as string,
     }));
   }
 
@@ -65,12 +74,15 @@ export class DiffRepository {
       id: row[0] as number,
       session_id: row[1] as number,
       source: row[2] as 'human' | 'agent' | 'tab-completion',
-      file_path: row[3] as string,
-      diff: row[4] as string,
-      lines_added: row[5] as number,
-      lines_removed: row[6] as number,
-      commit_id: row[7] as string | null,
-      timestamp: row[8] as string,
+      agent_subtype: row[3] as 'cmdk' | 'composer' | null,
+      agent_model: row[4] as string | null,
+      agent_prompt: row[5] as string | null,
+      file_path: row[6] as string,
+      diff: row[7] as string,
+      lines_added: row[8] as number,
+      lines_removed: row[9] as number,
+      commit_id: row[10] as string | null,
+      timestamp: row[11] as string,
     };
   }
 

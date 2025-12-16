@@ -166,20 +166,30 @@ export async function getRecentAIGenerations(workspaceFolderUri: string, sinceMs
  * Get the most recent AI generation timestamp from workspace database
  */
 export async function getMostRecentAIGenerationTime(workspaceFolderUri: string): Promise<number | null> {
+  const result = await getMostRecentAIGeneration(workspaceFolderUri);
+  return result?.unixMs ?? null;
+}
+
+/**
+ * Get the most recent AI generation with its type from workspace database
+ */
+export async function getMostRecentAIGeneration(workspaceFolderUri: string): Promise<AIGeneration | null> {
   const generations = await getRecentAIGenerations(workspaceFolderUri);
   if (generations.length === 0) {
     return null;
   }
 
-  // Find the most recent timestamp
+  // Find the most recent generation
+  let mostRecent: AIGeneration | null = null;
   let maxTime = 0;
   for (const gen of generations) {
     if (gen.unixMs > maxTime) {
       maxTime = gen.unixMs;
+      mostRecent = gen;
     }
   }
 
-  return maxTime > 0 ? maxTime : null;
+  return mostRecent;
 }
 
 /**
@@ -476,6 +486,220 @@ export async function getMostRecentComposerTime(): Promise<number | null> {
     return null;
   } catch (error) {
     console.error('[CursorDB] Error getting most recent composer:', error);
+    return null;
+  }
+}
+
+/**
+ * Get the most recently used model from composerData
+ */
+export async function getMostRecentModel(): Promise<string | null> {
+  const dbPath = getCursorDbPath();
+  if (!dbPath) {
+    return null;
+  }
+
+  try {
+    const SQL = await getSqlJs();
+    const fileBuffer = fs.readFileSync(dbPath);
+    const db = new SQL.Database(fileBuffer);
+
+    const query = `
+      SELECT json_extract(value, '$.modelConfig.modelName') as modelName
+      FROM cursorDiskKV
+      WHERE key LIKE 'composerData:%'
+        AND json_extract(value, '$.modelConfig.modelName') IS NOT NULL
+      ORDER BY json_extract(value, '$.createdAt') DESC
+      LIMIT 1
+    `;
+
+    const result = db.exec(query);
+    db.close();
+
+    if (result.length > 0 && result[0].values.length > 0) {
+      return result[0].values[0][0] as string;
+    }
+    return null;
+  } catch (error) {
+    console.error('[CursorDB] Error getting most recent model:', error);
+    return null;
+  }
+}
+
+/**
+ * Complete agent interaction data from Cursor's database
+ */
+export interface AgentInteraction {
+  bubbleId: string;
+  model: string | null;
+  prompt: string | null;
+  response: string | null;
+  thinking: string | null;
+  toolUsage: string | null;  // JSON string of tool calls
+  inputTokens: number;
+  outputTokens: number;
+  timestamp: string;
+  isAgentic: boolean;
+}
+
+/**
+ * Get the most recent AI bubble with full details including prompt from user bubble
+ * and model from composerData. This is the primary function for tracking agent activity.
+ */
+export async function getLatestAgentInteraction(): Promise<AgentInteraction | null> {
+  const dbPath = getCursorDbPath();
+  if (!dbPath) {
+    return null;
+  }
+
+  try {
+    const SQL = await getSqlJs();
+    const fileBuffer = fs.readFileSync(dbPath);
+    const db = new SQL.Database(fileBuffer);
+
+    // Get the most recent AI bubble (type=2) with all its data
+    const aiBubbleQuery = `
+      SELECT
+        json_extract(value, '$.bubbleId') as bubbleId,
+        json_extract(value, '$.text') as text,
+        json_extract(value, '$.allThinkingBlocks') as thinking,
+        json_extract(value, '$.toolResults') as toolResults,
+        json_extract(value, '$.tokenCount.inputTokens') as inputTokens,
+        json_extract(value, '$.tokenCount.outputTokens') as outputTokens,
+        json_extract(value, '$.createdAt') as createdAt,
+        json_extract(value, '$.isAgentic') as isAgentic
+      FROM cursorDiskKV
+      WHERE key LIKE 'bubbleId:%'
+        AND json_extract(value, '$.type') = 2
+      ORDER BY json_extract(value, '$.createdAt') DESC
+      LIMIT 1
+    `;
+
+    const aiBubbleResult = db.exec(aiBubbleQuery);
+    if (aiBubbleResult.length === 0 || aiBubbleResult[0].values.length === 0) {
+      db.close();
+      return null;
+    }
+
+    const aiRow = aiBubbleResult[0].values[0];
+    const bubbleId = aiRow[0] as string;
+    const response = aiRow[1] as string | null;
+    const thinkingRaw = aiRow[2] as string | null;
+    const toolResultsRaw = aiRow[3] as string | null;
+    const inputTokens = (aiRow[4] as number) || 0;
+    const outputTokens = (aiRow[5] as number) || 0;
+    const timestamp = aiRow[6] as string;
+    const isAgentic = aiRow[7] === 1;
+
+    // Parse thinking blocks - concatenate all thinking text
+    let thinking: string | null = null;
+    if (thinkingRaw) {
+      try {
+        const thinkingBlocks = JSON.parse(thinkingRaw);
+        if (Array.isArray(thinkingBlocks) && thinkingBlocks.length > 0) {
+          thinking = thinkingBlocks.map((b: { thinking?: string }) => b.thinking || '').join('\n');
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    // Parse tool results
+    let toolUsage: string | null = null;
+    if (toolResultsRaw) {
+      try {
+        const tools = JSON.parse(toolResultsRaw);
+        if (Array.isArray(tools) && tools.length > 0) {
+          toolUsage = JSON.stringify(tools);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    // Find the user bubble (type=1) created just before this AI bubble
+    const userBubbleQuery = `
+      SELECT json_extract(value, '$.text') as text
+      FROM cursorDiskKV
+      WHERE key LIKE 'bubbleId:%'
+        AND json_extract(value, '$.type') = 1
+        AND json_extract(value, '$.createdAt') < ?
+      ORDER BY json_extract(value, '$.createdAt') DESC
+      LIMIT 1
+    `;
+
+    const userBubbleResult = db.exec(userBubbleQuery, [timestamp]);
+    let prompt: string | null = null;
+    if (userBubbleResult.length > 0 && userBubbleResult[0].values.length > 0) {
+      prompt = userBubbleResult[0].values[0][0] as string | null;
+    }
+
+    // Find the composerData containing this bubble to get the model
+    const composerQuery = `
+      SELECT json_extract(value, '$.modelConfig.modelName') as modelName
+      FROM cursorDiskKV
+      WHERE key LIKE 'composerData:%'
+        AND value LIKE ?
+    `;
+
+    const composerResult = db.exec(composerQuery, [`%${bubbleId}%`]);
+    let model: string | null = null;
+    if (composerResult.length > 0 && composerResult[0].values.length > 0) {
+      model = composerResult[0].values[0][0] as string | null;
+    }
+
+    db.close();
+
+    return {
+      bubbleId,
+      model,
+      prompt,
+      response,
+      thinking,
+      toolUsage,
+      inputTokens,
+      outputTokens,
+      timestamp,
+      isAgentic,
+    };
+  } catch (error) {
+    console.error('[CursorDB] Error getting latest agent interaction:', error);
+    return null;
+  }
+}
+
+/**
+ * Get the most recent AI bubble timestamp for comparison
+ */
+export async function getLatestAIBubbleTimestamp(): Promise<string | null> {
+  const dbPath = getCursorDbPath();
+  if (!dbPath) {
+    return null;
+  }
+
+  try {
+    const SQL = await getSqlJs();
+    const fileBuffer = fs.readFileSync(dbPath);
+    const db = new SQL.Database(fileBuffer);
+
+    const query = `
+      SELECT json_extract(value, '$.createdAt') as createdAt
+      FROM cursorDiskKV
+      WHERE key LIKE 'bubbleId:%'
+        AND json_extract(value, '$.type') = 2
+      ORDER BY json_extract(value, '$.createdAt') DESC
+      LIMIT 1
+    `;
+
+    const result = db.exec(query);
+    db.close();
+
+    if (result.length > 0 && result[0].values.length > 0) {
+      return result[0].values[0][0] as string;
+    }
+    return null;
+  } catch (error) {
+    console.error('[CursorDB] Error getting latest AI bubble timestamp:', error);
     return null;
   }
 }

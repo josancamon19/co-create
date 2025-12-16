@@ -44,6 +44,10 @@
       {
         "command": "cursor-collector.debugCursorDb",
         "title": "Debug: Show Cursor DB Keys"
+      },
+      {
+        "command": "cursor-collector.contributeData",
+        "title": "Contribute Data to Research"
       }
     ],
     "configuration": {
@@ -86,6 +90,7 @@
     "typescript": "^5.3.2"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.14.0",
     "sql.js": "^1.10.0"
   }
 }

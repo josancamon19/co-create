@@ -4,6 +4,7 @@ import { diffCollector } from './collectors/diff';
 import { agentMonitor } from './agent/monitor';
 import { ICollector } from './collectors/base';
 import { getAllCursorKeys, getCursorDbPath } from './utils/cursor-db';
+import { contributionService } from './services/contribution';
 
 const collectors: ICollector[] = [
   diffCollector,
@@ -83,6 +84,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('cursor-collector.debugCursorDb', async () => {
       await debugCursorDb();
+    })
+  );
+
+  // Contribute data command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cursor-collector.contributeData', async () => {
+      await contributionService.contribute();
     })
   );
 }
