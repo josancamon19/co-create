@@ -7,6 +7,11 @@ export interface DiffInput {
   agentSubtype?: 'cmdk' | 'composer' | null;
   agentModel?: string | null;
   agentPrompt?: string | null;
+  agentResponse?: string | null;
+  agentThinking?: string | null;
+  agentToolUsage?: string | null;
+  agentInputTokens?: number;
+  agentOutputTokens?: number;
   filePath: string;
   diff: string;
   linesAdded: number;
@@ -18,13 +23,22 @@ export class DiffRepository {
   create(input: DiffInput): void {
     const db = dbConnection.getDatabase();
     db.run(
-      'INSERT INTO diffs (session_id, source, agent_subtype, agent_model, agent_prompt, file_path, diff, lines_added, lines_removed, commit_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      `INSERT INTO diffs (
+        session_id, source, agent_subtype, agent_model, agent_prompt,
+        agent_response, agent_thinking, agent_tool_usage, agent_input_tokens, agent_output_tokens,
+        file_path, diff, lines_added, lines_removed, commit_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.sessionId,
         input.source,
         input.agentSubtype ?? null,
         input.agentModel ?? null,
         input.agentPrompt ?? null,
+        input.agentResponse ?? null,
+        input.agentThinking ?? null,
+        input.agentToolUsage ?? null,
+        input.agentInputTokens ?? 0,
+        input.agentOutputTokens ?? 0,
         input.filePath,
         input.diff,
         input.linesAdded,
@@ -51,12 +65,17 @@ export class DiffRepository {
       agent_subtype: row[3] as 'cmdk' | 'composer' | null,
       agent_model: row[4] as string | null,
       agent_prompt: row[5] as string | null,
-      file_path: row[6] as string,
-      diff: row[7] as string,
-      lines_added: row[8] as number,
-      lines_removed: row[9] as number,
-      commit_id: row[10] as string | null,
-      timestamp: row[11] as string,
+      agent_response: row[6] as string | null,
+      agent_thinking: row[7] as string | null,
+      agent_tool_usage: row[8] as string | null,
+      agent_input_tokens: (row[9] as number) || 0,
+      agent_output_tokens: (row[10] as number) || 0,
+      file_path: row[11] as string,
+      diff: row[12] as string,
+      lines_added: row[13] as number,
+      lines_removed: row[14] as number,
+      commit_id: row[15] as string | null,
+      timestamp: row[16] as string,
     }));
   }
 
@@ -77,12 +96,17 @@ export class DiffRepository {
       agent_subtype: row[3] as 'cmdk' | 'composer' | null,
       agent_model: row[4] as string | null,
       agent_prompt: row[5] as string | null,
-      file_path: row[6] as string,
-      diff: row[7] as string,
-      lines_added: row[8] as number,
-      lines_removed: row[9] as number,
-      commit_id: row[10] as string | null,
-      timestamp: row[11] as string,
+      agent_response: row[6] as string | null,
+      agent_thinking: row[7] as string | null,
+      agent_tool_usage: row[8] as string | null,
+      agent_input_tokens: (row[9] as number) || 0,
+      agent_output_tokens: (row[10] as number) || 0,
+      file_path: row[11] as string,
+      diff: row[12] as string,
+      lines_added: row[13] as number,
+      lines_removed: row[14] as number,
+      commit_id: row[15] as string | null,
+      timestamp: row[16] as string,
     };
   }
 

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { BaseCollector } from './base';
 import { sessionManager } from '../session/manager';
 import { agentMonitor, AgentSubtype } from '../agent/monitor';
+import { AgentInteraction } from '../utils/cursor-db';
 
 const DEBOUNCE_MS = 5000; // 5 seconds of inactivity triggers diff
 
@@ -13,10 +14,8 @@ interface FileState {
   hadAgentActivity: boolean;
   // Track the subtype of agent activity (cmdk or composer)
   agentSubtype: AgentSubtype;
-  // Track the model used for agent activity
-  agentModel: string | null;
-  // Track the prompt/instruction for agent activity
-  agentPrompt: string | null;
+  // Track the full agent interaction data
+  agentInteraction: AgentInteraction | null;
   // Track if tab completion was used during this batch
   hadTabCompletion: boolean;
 }
@@ -166,8 +165,7 @@ export class DiffCollector extends BaseCollector {
         timeout: null,
         hadAgentActivity: false,
         agentSubtype: null,
-        agentModel: null,
-        agentPrompt: null,
+        agentInteraction: null,
         hadTabCompletion: false,
       });
     }
@@ -191,8 +189,7 @@ export class DiffCollector extends BaseCollector {
 
     const source = agentMonitor.getSource();
     const agentSubtype = source === 'agent' ? agentMonitor.getAgentSubtype() : null;
-    const agentModel = source === 'agent' ? agentMonitor.getAgentModel() : null;
-    const agentPrompt = source === 'agent' ? agentMonitor.getAgentPrompt() : null;
+    const interaction = source === 'agent' ? agentMonitor.getAgentInteraction() : null;
 
     // Read the new file content
     try {
@@ -206,8 +203,13 @@ export class DiffCollector extends BaseCollector {
       sessionManager.recordDiff({
         source,
         agentSubtype,
-        agentModel,
-        agentPrompt,
+        agentModel: interaction?.model ?? null,
+        agentPrompt: interaction?.prompt ?? null,
+        agentResponse: interaction?.response ?? null,
+        agentThinking: interaction?.thinking ?? null,
+        agentToolUsage: interaction?.toolUsage ?? null,
+        agentInputTokens: interaction?.inputTokens ?? 0,
+        agentOutputTokens: interaction?.outputTokens ?? 0,
         filePath: path,
         diff: `[FILE CREATED]\n${diffLines.join('\n')}`,
         linesAdded: lines.length,
@@ -215,15 +217,20 @@ export class DiffCollector extends BaseCollector {
       });
 
       const subtypeStr = agentSubtype ? ` (${agentSubtype})` : '';
-      const modelStr = agentModel ? ` [${agentModel.substring(0, 20)}]` : '';
+      const modelStr = interaction?.model ? ` [${interaction.model.substring(0, 20)}]` : '';
       this.log(`Recorded ${source}${subtypeStr}${modelStr} file create: ${path}`);
     } catch {
       // File might be binary or unreadable
       sessionManager.recordDiff({
         source,
         agentSubtype,
-        agentModel,
-        agentPrompt,
+        agentModel: interaction?.model ?? null,
+        agentPrompt: interaction?.prompt ?? null,
+        agentResponse: interaction?.response ?? null,
+        agentThinking: interaction?.thinking ?? null,
+        agentToolUsage: interaction?.toolUsage ?? null,
+        agentInputTokens: interaction?.inputTokens ?? 0,
+        agentOutputTokens: interaction?.outputTokens ?? 0,
         filePath: path,
         diff: '[FILE CREATED]',
         linesAdded: 0,
@@ -238,8 +245,7 @@ export class DiffCollector extends BaseCollector {
 
     const source = agentMonitor.getSource();
     const agentSubtype = source === 'agent' ? agentMonitor.getAgentSubtype() : null;
-    const agentModel = source === 'agent' ? agentMonitor.getAgentModel() : null;
-    const agentPrompt = source === 'agent' ? agentMonitor.getAgentPrompt() : null;
+    const interaction = source === 'agent' ? agentMonitor.getAgentInteraction() : null;
 
     // Check if we have baseline content
     const state = this.fileStates.get(path);
@@ -252,8 +258,13 @@ export class DiffCollector extends BaseCollector {
       sessionManager.recordDiff({
         source,
         agentSubtype,
-        agentModel,
-        agentPrompt,
+        agentModel: interaction?.model ?? null,
+        agentPrompt: interaction?.prompt ?? null,
+        agentResponse: interaction?.response ?? null,
+        agentThinking: interaction?.thinking ?? null,
+        agentToolUsage: interaction?.toolUsage ?? null,
+        agentInputTokens: interaction?.inputTokens ?? 0,
+        agentOutputTokens: interaction?.outputTokens ?? 0,
         filePath: path,
         diff: `[FILE DELETED]\n${diffLines.join('\n')}`,
         linesAdded: 0,
@@ -268,8 +279,13 @@ export class DiffCollector extends BaseCollector {
       sessionManager.recordDiff({
         source,
         agentSubtype,
-        agentModel,
-        agentPrompt,
+        agentModel: interaction?.model ?? null,
+        agentPrompt: interaction?.prompt ?? null,
+        agentResponse: interaction?.response ?? null,
+        agentThinking: interaction?.thinking ?? null,
+        agentToolUsage: interaction?.toolUsage ?? null,
+        agentInputTokens: interaction?.inputTokens ?? 0,
+        agentOutputTokens: interaction?.outputTokens ?? 0,
         filePath: path,
         diff: '[FILE DELETED]',
         linesAdded: 0,
@@ -278,7 +294,7 @@ export class DiffCollector extends BaseCollector {
     }
 
     const subtypeStr = agentSubtype ? ` (${agentSubtype})` : '';
-    const modelStr = agentModel ? ` [${agentModel.substring(0, 20)}]` : '';
+    const modelStr = interaction?.model ? ` [${interaction.model.substring(0, 20)}]` : '';
     this.log(`Recorded ${source}${subtypeStr}${modelStr} file delete: ${path}`);
   }
 
@@ -342,9 +358,9 @@ export class DiffCollector extends BaseCollector {
     if (agentMonitor.isAgentActive() && !explicitTabCompletion) {
       state.hadAgentActivity = true;
       state.agentSubtype = agentMonitor.getAgentSubtype();
-      state.agentModel = agentMonitor.getAgentModel();
-      state.agentPrompt = agentMonitor.getAgentPrompt();
-      this.log(`Agent activity captured for ${path} (subtype: ${state.agentSubtype}, model: ${state.agentModel?.substring(0, 20) || 'N/A'})`);
+      state.agentInteraction = agentMonitor.getAgentInteraction();
+      const model = state.agentInteraction?.model?.substring(0, 20) || 'N/A';
+      this.log(`Agent activity captured for ${path} (subtype: ${state.agentSubtype}, model: ${model})`);
     }
 
     // Reset debounce timer
@@ -372,8 +388,7 @@ export class DiffCollector extends BaseCollector {
       // Reset flags even if no diff
       state.hadAgentActivity = false;
       state.agentSubtype = null;
-      state.agentModel = null;
-      state.agentPrompt = null;
+      state.agentInteraction = null;
       state.hadTabCompletion = false;
       return;
     }
@@ -387,21 +402,18 @@ export class DiffCollector extends BaseCollector {
     // 3. Human (pure manual edits)
     let source: 'human' | 'agent' | 'tab-completion';
     let agentSubtype: AgentSubtype = null;
-    let agentModel: string | null = null;
-    let agentPrompt: string | null = null;
+    let interaction: AgentInteraction | null = null;
     if (state.hadAgentActivity) {
       source = 'agent';
       agentSubtype = state.agentSubtype;
-      agentModel = state.agentModel;
-      agentPrompt = state.agentPrompt;
+      interaction = state.agentInteraction;
     } else if (state.hadTabCompletion) {
       source = 'tab-completion';
     } else {
       source = agentMonitor.isAgentActive() ? 'agent' : 'human';
       if (source === 'agent') {
         agentSubtype = agentMonitor.getAgentSubtype();
-        agentModel = agentMonitor.getAgentModel();
-        agentPrompt = agentMonitor.getAgentPrompt();
+        interaction = agentMonitor.getAgentInteraction();
       }
     }
 
@@ -409,8 +421,13 @@ export class DiffCollector extends BaseCollector {
     sessionManager.recordDiff({
       source,
       agentSubtype,
-      agentModel,
-      agentPrompt,
+      agentModel: interaction?.model ?? null,
+      agentPrompt: interaction?.prompt ?? null,
+      agentResponse: interaction?.response ?? null,
+      agentThinking: interaction?.thinking ?? null,
+      agentToolUsage: interaction?.toolUsage ?? null,
+      agentInputTokens: interaction?.inputTokens ?? 0,
+      agentOutputTokens: interaction?.outputTokens ?? 0,
       filePath,
       diff: diff.text,
       linesAdded: diff.added,
@@ -418,15 +435,14 @@ export class DiffCollector extends BaseCollector {
     });
 
     const subtypeStr = agentSubtype ? ` (${agentSubtype})` : '';
-    const modelStr = agentModel ? ` [${agentModel.substring(0, 20)}]` : '';
+    const modelStr = interaction?.model ? ` [${interaction.model.substring(0, 20)}]` : '';
     this.log(`Recorded ${source}${subtypeStr}${modelStr} diff for ${filePath} (+${diff.added}/-${diff.removed})`);
 
     // Update baseline and reset flags
     state.baseline = state.current;
     state.hadAgentActivity = false;
     state.agentSubtype = null;
-    state.agentModel = null;
-    state.agentPrompt = null;
+    state.agentInteraction = null;
     state.hadTabCompletion = false;
   }
 

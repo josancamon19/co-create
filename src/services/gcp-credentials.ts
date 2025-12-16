@@ -14,4 +14,4 @@ export const GCP_CREDENTIALS = {
   universe_domain: 'googleapis.com',
 };
 
-export const GCP_BUCKET_NAME = 'coding-dataset';
+export const GCP_BUCKET_NAME = 'co-create-dataset';

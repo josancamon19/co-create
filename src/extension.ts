@@ -117,10 +117,13 @@ Duration: ${durationStr}
   const result = await vscode.window.showInformationMessage(
     message,
     { modal: true },
+    'Contribute',
     'Export Data'
   );
 
-  if (result === 'Export Data') {
+  if (result === 'Contribute') {
+    await contributionService.contribute();
+  } else if (result === 'Export Data') {
     await exportData();
   }
 }

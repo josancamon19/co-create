@@ -135,20 +135,17 @@ export class AgentActivityMonitor {
       // This is the most reliable source for model, prompt, response, etc.
       const latestBubbleTimestamp = await getLatestAIBubbleTimestamp();
       if (latestBubbleTimestamp && latestBubbleTimestamp !== this.lastKnownBubbleTimestamp) {
-        const bubbleTime = new Date(latestBubbleTimestamp).getTime();
-        const now = Date.now();
-        const ageMs = now - bubbleTime;
-
-        if (ageMs < 30000) {
-          // Fetch full interaction data
-          const interaction = await getLatestAgentInteraction();
-          if (interaction) {
-            console.log('[AgentMonitor] New AI bubble detected! Age:', Math.round(ageMs / 1000), 's');
-            console.log(`[AgentMonitor] Model: ${interaction.model}, Prompt: ${interaction.prompt?.substring(0, 50)}...`);
-            this.markAgentActive('composer', interaction);
-          }
-        } else {
-          console.log('[AgentMonitor] Bubble is old (', Math.round(ageMs / 1000), 's), not marking as active');
+        // NEW bubble detected - always mark as active, regardless of age
+        // User might be reviewing the AI output before accepting changes
+        const interaction = await getLatestAgentInteraction();
+        if (interaction) {
+          const bubbleTime = new Date(latestBubbleTimestamp).getTime();
+          const ageMs = Date.now() - bubbleTime;
+          console.log('[AgentMonitor] New AI bubble detected! Age:', Math.round(ageMs / 1000), 's');
+          console.log(`[AgentMonitor] Model: ${interaction.model}, Prompt: ${interaction.prompt?.substring(0, 50)}...`);
+          console.log(`[AgentMonitor] Response: ${interaction.response?.substring(0, 100)}...`);
+          console.log(`[AgentMonitor] Tokens: in=${interaction.inputTokens}, out=${interaction.outputTokens}`);
+          this.markAgentActive('composer', interaction);
         }
 
         this.lastKnownBubbleTimestamp = latestBubbleTimestamp;

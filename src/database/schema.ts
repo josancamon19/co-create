@@ -1,6 +1,6 @@
 import { Database as SqlJsDatabase } from 'sql.js';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export function initializeSchema(db: SqlJsDatabase): void {
   // Create projects table
@@ -34,6 +34,11 @@ export function initializeSchema(db: SqlJsDatabase): void {
       agent_subtype TEXT,
       agent_model TEXT,
       agent_prompt TEXT,
+      agent_response TEXT,
+      agent_thinking TEXT,
+      agent_tool_usage TEXT,
+      agent_input_tokens INTEGER DEFAULT 0,
+      agent_output_tokens INTEGER DEFAULT 0,
       file_path TEXT NOT NULL,
       diff TEXT NOT NULL,
       lines_added INTEGER DEFAULT 0,
@@ -57,6 +62,31 @@ export function initializeSchema(db: SqlJsDatabase): void {
   }
   try {
     db.run(`ALTER TABLE diffs ADD COLUMN agent_prompt TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+  try {
+    db.run(`ALTER TABLE diffs ADD COLUMN agent_response TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+  try {
+    db.run(`ALTER TABLE diffs ADD COLUMN agent_thinking TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+  try {
+    db.run(`ALTER TABLE diffs ADD COLUMN agent_tool_usage TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+  try {
+    db.run(`ALTER TABLE diffs ADD COLUMN agent_input_tokens INTEGER DEFAULT 0`);
+  } catch {
+    // Column already exists, ignore
+  }
+  try {
+    db.run(`ALTER TABLE diffs ADD COLUMN agent_output_tokens INTEGER DEFAULT 0`);
   } catch {
     // Column already exists, ignore
   }
@@ -102,6 +132,11 @@ export interface Diff {
   agent_subtype: 'cmdk' | 'composer' | null;
   agent_model: string | null;
   agent_prompt: string | null;
+  agent_response: string | null;
+  agent_thinking: string | null;
+  agent_tool_usage: string | null;
+  agent_input_tokens: number;
+  agent_output_tokens: number;
   file_path: string;
   diff: string;
   lines_added: number;

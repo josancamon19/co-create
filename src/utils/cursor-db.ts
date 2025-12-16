@@ -557,12 +557,14 @@ export async function getLatestAgentInteraction(): Promise<AgentInteraction | nu
     const fileBuffer = fs.readFileSync(dbPath);
     const db = new SQL.Database(fileBuffer);
 
-    // Get the most recent AI bubble (type=2) with all its data
+    // Get the most recent AI bubble (type=2) that has actual content
+    // Filter for bubbles with non-empty text OR non-zero tokens (to skip empty intermediate bubbles)
     const aiBubbleQuery = `
       SELECT
         json_extract(value, '$.bubbleId') as bubbleId,
         json_extract(value, '$.text') as text,
-        json_extract(value, '$.allThinkingBlocks') as thinking,
+        json_extract(value, '$.thinking') as thinkingObj,
+        json_extract(value, '$.allThinkingBlocks') as thinkingBlocks,
         json_extract(value, '$.toolResults') as toolResults,
         json_extract(value, '$.tokenCount.inputTokens') as inputTokens,
         json_extract(value, '$.tokenCount.outputTokens') as outputTokens,
@@ -571,6 +573,10 @@ export async function getLatestAgentInteraction(): Promise<AgentInteraction | nu
       FROM cursorDiskKV
       WHERE key LIKE 'bubbleId:%'
         AND json_extract(value, '$.type') = 2
+        AND (
+          (json_extract(value, '$.text') IS NOT NULL AND json_extract(value, '$.text') != '')
+          OR json_extract(value, '$.tokenCount.outputTokens') > 0
+        )
       ORDER BY json_extract(value, '$.createdAt') DESC
       LIMIT 1
     `;
@@ -584,20 +590,38 @@ export async function getLatestAgentInteraction(): Promise<AgentInteraction | nu
     const aiRow = aiBubbleResult[0].values[0];
     const bubbleId = aiRow[0] as string;
     const response = aiRow[1] as string | null;
-    const thinkingRaw = aiRow[2] as string | null;
-    const toolResultsRaw = aiRow[3] as string | null;
-    const inputTokens = (aiRow[4] as number) || 0;
-    const outputTokens = (aiRow[5] as number) || 0;
-    const timestamp = aiRow[6] as string;
-    const isAgentic = aiRow[7] === 1;
+    const thinkingObjRaw = aiRow[2] as string | null;
+    const thinkingBlocksRaw = aiRow[3] as string | null;
+    const toolResultsRaw = aiRow[4] as string | null;
+    const inputTokens = (aiRow[5] as number) || 0;
+    const outputTokens = (aiRow[6] as number) || 0;
+    const timestamp = aiRow[7] as string;
+    const isAgentic = aiRow[8] === 1;
 
-    // Parse thinking blocks - concatenate all thinking text
+    // Parse thinking - can be in 'thinking' object or 'allThinkingBlocks' array
     let thinking: string | null = null;
-    if (thinkingRaw) {
+
+    // First try the 'thinking' field (object with text property)
+    if (thinkingObjRaw) {
       try {
-        const thinkingBlocks = JSON.parse(thinkingRaw);
+        const thinkingObj = JSON.parse(thinkingObjRaw);
+        if (thinkingObj && typeof thinkingObj === 'object' && thinkingObj.text) {
+          thinking = thinkingObj.text;
+        }
+      } catch {
+        // Might be a plain string
+        if (typeof thinkingObjRaw === 'string' && thinkingObjRaw.length > 0) {
+          thinking = thinkingObjRaw;
+        }
+      }
+    }
+
+    // If no thinking yet, try allThinkingBlocks
+    if (!thinking && thinkingBlocksRaw) {
+      try {
+        const thinkingBlocks = JSON.parse(thinkingBlocksRaw);
         if (Array.isArray(thinkingBlocks) && thinkingBlocks.length > 0) {
-          thinking = thinkingBlocks.map((b: { thinking?: string }) => b.thinking || '').join('\n');
+          thinking = thinkingBlocks.map((b: { thinking?: string; text?: string }) => b.thinking || b.text || '').filter(Boolean).join('\n');
         }
       } catch {
         // Ignore parse errors
@@ -670,6 +694,7 @@ export async function getLatestAgentInteraction(): Promise<AgentInteraction | nu
 
 /**
  * Get the most recent AI bubble timestamp for comparison
+ * Only considers bubbles with actual content (non-empty text or non-zero tokens)
  */
 export async function getLatestAIBubbleTimestamp(): Promise<string | null> {
   const dbPath = getCursorDbPath();
@@ -682,11 +707,16 @@ export async function getLatestAIBubbleTimestamp(): Promise<string | null> {
     const fileBuffer = fs.readFileSync(dbPath);
     const db = new SQL.Database(fileBuffer);
 
+    // Only track bubbles with actual content to avoid detecting empty intermediate bubbles
     const query = `
       SELECT json_extract(value, '$.createdAt') as createdAt
       FROM cursorDiskKV
       WHERE key LIKE 'bubbleId:%'
         AND json_extract(value, '$.type') = 2
+        AND (
+          (json_extract(value, '$.text') IS NOT NULL AND json_extract(value, '$.text') != '')
+          OR json_extract(value, '$.tokenCount.outputTokens') > 0
+        )
       ORDER BY json_extract(value, '$.createdAt') DESC
       LIMIT 1
     `;

@@ -22,6 +22,7 @@ export interface ContributionStats {
     latest: string | null;
   };
   fileExtensions: string[];
+  projectUrls: string[];
 }
 
 export class ContributionService {
@@ -112,6 +113,18 @@ export class ContributionService {
       }
     }
 
+    // Project URLs
+    const projectUrlsResult = db.exec('SELECT git_remote_url FROM projects');
+    const projectUrls: string[] = [];
+    if (projectUrlsResult.length > 0) {
+      for (const row of projectUrlsResult[0].values) {
+        const url = row[0] as string;
+        if (url && !url.startsWith('local://')) {
+          projectUrls.push(url);
+        }
+      }
+    }
+
     return {
       totalDiffs,
       humanDiffs,
@@ -123,6 +136,7 @@ export class ContributionService {
       totalLinesRemoved,
       dateRange: { earliest, latest },
       fileExtensions: Array.from(extensions).slice(0, 15),
+      projectUrls,
     };
   }
 
@@ -167,43 +181,30 @@ export class ContributionService {
   }
 
   formatStatsForIssue(stats: ContributionStats, gcpUrl: string, username: string): string {
-    const humanPercent = stats.totalDiffs > 0
-      ? ((stats.humanDiffs / stats.totalDiffs) * 100).toFixed(1)
-      : '0';
-    const agentPercent = stats.totalDiffs > 0
-      ? ((stats.agentDiffs / stats.totalDiffs) * 100).toFixed(1)
-      : '0';
-    const tabPercent = stats.totalDiffs > 0
-      ? ((stats.tabCompletionDiffs / stats.totalDiffs) * 100).toFixed(1)
-      : '0';
+    // Convert gs:// URL to public https:// URL
+    const publicUrl = gcpUrl.replace('gs://', 'https://storage.googleapis.com/');
 
-    return `## Data Contribution from ${username}
+    const projectsList = stats.projectUrls.length > 0
+      ? stats.projectUrls.join('\n')
+      : 'No git repositories';
 
-### GCP Bucket URL
-\`${gcpUrl}\`
+    return `Download: ${publicUrl}
 
-### Statistics
+Statistics:
+- Total Diffs: ${stats.totalDiffs}
+- Human Edits: ${stats.humanDiffs}
+- Agent Edits: ${stats.agentDiffs}
+- Tab Completions: ${stats.tabCompletionDiffs}
+- Sessions: ${stats.totalSessions}
+- Lines Added: ${stats.totalLinesAdded}
+- Lines Removed: ${stats.totalLinesRemoved}
 
-| Metric | Value |
-|--------|-------|
-| **Total Diffs** | ${stats.totalDiffs} |
-| **Human Edits** | ${stats.humanDiffs} (${humanPercent}%) |
-| **Agent Edits** | ${stats.agentDiffs} (${agentPercent}%) |
-| **Tab Completions** | ${stats.tabCompletionDiffs} (${tabPercent}%) |
-| **Sessions** | ${stats.totalSessions} |
-| **Projects** | ${stats.totalProjects} |
-| **Lines Added** | ${stats.totalLinesAdded} |
-| **Lines Removed** | ${stats.totalLinesRemoved} |
+Date Range: ${stats.dateRange.earliest || 'N/A'} to ${stats.dateRange.latest || 'N/A'}
 
-### Date Range
-- **From**: ${stats.dateRange.earliest || 'N/A'}
-- **To**: ${stats.dateRange.latest || 'N/A'}
+Projects:
+${projectsList}
 
-### File Types
-${stats.fileExtensions.length > 0 ? stats.fileExtensions.join(', ') : 'N/A'}
-
----
-*Submitted via Cursor Interaction Collector extension*`;
+File Types: ${stats.fileExtensions.length > 0 ? stats.fileExtensions.join(', ') : 'N/A'}`;
   }
 
   openGitHubIssue(stats: ContributionStats, gcpUrl: string, username: string): void {
