@@ -9,14 +9,21 @@ import { GCP_CREDENTIALS, GCP_BUCKET_NAME } from './gcp-credentials';
 const GITHUB_REPO = 'josancamon19/co-create';
 
 export interface ContributionStats {
-  totalDiffs: number;
-  humanDiffs: number;
-  agentDiffs: number;
-  tabCompletionDiffs: number;
+  totalEvents: number;
+  humanEvents: number;
+  agentEvents: number;
+  tabCompletionEvents: number;
+  totalInteractions: number;
   totalSessions: number;
   totalProjects: number;
   totalLinesAdded: number;
   totalLinesRemoved: number;
+  eventsByType: {
+    diff: number;
+    file_create: number;
+    file_delete: number;
+    terminal: number;
+  };
   dateRange: {
     earliest: string | null;
     latest: string | null;
@@ -45,63 +52,84 @@ export class ContributionService {
 
     const db = dbConnection.getDatabase();
 
-    // Total diffs
-    const totalResult = db.exec('SELECT COUNT(*) FROM diffs');
-    const totalDiffs = totalResult.length > 0 ? (totalResult[0].values[0][0] as number) : 0;
+    // Total events
+    const totalResult = db.exec('SELECT COUNT(*) FROM events');
+    const totalEvents = totalResult.length > 0 ? (totalResult[0].values[0][0] as number) : 0;
 
     // Breakdown by source
     const sourceResult = db.exec(`
       SELECT source, COUNT(*) as count
-      FROM diffs
+      FROM events
       GROUP BY source
     `);
 
-    let humanDiffs = 0;
-    let agentDiffs = 0;
-    let tabCompletionDiffs = 0;
+    let humanEvents = 0;
+    let agentEvents = 0;
+    let tabCompletionEvents = 0;
 
     if (sourceResult.length > 0) {
       for (const row of sourceResult[0].values) {
         const source = row[0] as string;
         const count = row[1] as number;
-        if (source === 'human') humanDiffs = count;
-        else if (source === 'agent') agentDiffs = count;
-        else if (source === 'tab-completion') tabCompletionDiffs = count;
+        if (source === 'human') humanEvents = count;
+        else if (source === 'agent') agentEvents = count;
+        else if (source === 'tab-completion') tabCompletionEvents = count;
       }
     }
 
+    // Breakdown by type
+    const typeResult = db.exec(`
+      SELECT type, COUNT(*) as count
+      FROM events
+      GROUP BY type
+    `);
+
+    const eventsByType = { diff: 0, file_create: 0, file_delete: 0, terminal: 0 };
+    if (typeResult.length > 0) {
+      for (const row of typeResult[0].values) {
+        const type = row[0] as string;
+        const count = row[1] as number;
+        if (type in eventsByType) {
+          eventsByType[type as keyof typeof eventsByType] = count;
+        }
+      }
+    }
+
+    // Total interactions
+    const interactionsResult = db.exec('SELECT COUNT(*) FROM interactions');
+    const totalInteractions = interactionsResult.length > 0 ? (interactionsResult[0].values[0][0] as number) : 0;
+
     // Total sessions
-    const sessionsResult = db.exec('SELECT COUNT(DISTINCT session_id) FROM diffs');
+    const sessionsResult = db.exec('SELECT COUNT(DISTINCT session_id) FROM events');
     const totalSessions = sessionsResult.length > 0 ? (sessionsResult[0].values[0][0] as number) : 0;
 
     // Total projects
     const projectsResult = db.exec('SELECT COUNT(*) FROM projects');
     const totalProjects = projectsResult.length > 0 ? (projectsResult[0].values[0][0] as number) : 0;
 
-    // Lines added/removed
-    const linesResult = db.exec('SELECT SUM(lines_added), SUM(lines_removed) FROM diffs');
-    const totalLinesAdded = linesResult.length > 0 ? (linesResult[0].values[0][0] as number) || 0 : 0;
-    const totalLinesRemoved = linesResult.length > 0 ? (linesResult[0].values[0][1] as number) || 0 : 0;
+    // Lines added/removed (from metadata JSON)
+    let totalLinesAdded = 0;
+    let totalLinesRemoved = 0;
+    const metadataResult = db.exec('SELECT metadata FROM events WHERE metadata IS NOT NULL');
+    if (metadataResult.length > 0) {
+      for (const row of metadataResult[0].values) {
+        try {
+          const metadata = JSON.parse(row[0] as string);
+          if (metadata.lines_added) totalLinesAdded += metadata.lines_added;
+          if (metadata.lines_removed) totalLinesRemoved += metadata.lines_removed;
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    }
 
     // Date range
-    const dateResult = db.exec('SELECT MIN(timestamp), MAX(timestamp) FROM diffs');
+    const dateResult = db.exec('SELECT MIN(timestamp), MAX(timestamp) FROM events');
     const earliest = dateResult.length > 0 ? (dateResult[0].values[0][0] as string | null) : null;
     const latest = dateResult.length > 0 ? (dateResult[0].values[0][1] as string | null) : null;
 
-    // File extensions
-    const extensionsResult = db.exec(`
-      SELECT DISTINCT
-        CASE
-          WHEN file_path LIKE '%.%'
-          THEN SUBSTR(file_path, INSTR(file_path, '.') + LENGTH(file_path) - LENGTH(REPLACE(file_path, '.', '')) - INSTR(file_path, '.') + 1)
-          ELSE 'no-extension'
-        END as ext
-      FROM diffs
-      LIMIT 20
-    `);
-
-    // Simpler approach: get file paths and extract extensions in JS
-    const filePathsResult = db.exec('SELECT DISTINCT file_path FROM diffs LIMIT 100');
+    // File extensions from file_path
+    const filePathsResult = db.exec('SELECT DISTINCT file_path FROM events WHERE file_path IS NOT NULL LIMIT 100');
     const extensions = new Set<string>();
     if (filePathsResult.length > 0) {
       for (const row of filePathsResult[0].values) {
@@ -126,14 +154,16 @@ export class ContributionService {
     }
 
     return {
-      totalDiffs,
-      humanDiffs,
-      agentDiffs,
-      tabCompletionDiffs,
+      totalEvents,
+      humanEvents,
+      agentEvents,
+      tabCompletionEvents,
+      totalInteractions,
       totalSessions,
       totalProjects,
       totalLinesAdded,
       totalLinesRemoved,
+      eventsByType,
       dateRange: { earliest, latest },
       fileExtensions: Array.from(extensions).slice(0, 15),
       projectUrls,
@@ -200,13 +230,20 @@ export class ContributionService {
 ${publicUrl}
 
 ## Statistics
-- Total Diffs: ${stats.totalDiffs}
-- Human Edits: ${stats.humanDiffs}
-- Agent Edits: ${stats.agentDiffs}
-- Tab Completions: ${stats.tabCompletionDiffs}
+- Total Events: ${stats.totalEvents}
+- Human Events: ${stats.humanEvents}
+- Agent Events: ${stats.agentEvents}
+- Tab Completions: ${stats.tabCompletionEvents}
+- Agent Interactions: ${stats.totalInteractions}
 - Sessions: ${stats.totalSessions}
 - Lines Added: ${stats.totalLinesAdded}
 - Lines Removed: ${stats.totalLinesRemoved}
+
+## Event Types
+- Diffs: ${stats.eventsByType.diff}
+- File Creates: ${stats.eventsByType.file_create}
+- File Deletes: ${stats.eventsByType.file_delete}
+- Terminal: ${stats.eventsByType.terminal}
 
 ## Date Range
 ${stats.dateRange.earliest || 'N/A'} to ${stats.dateRange.latest || 'N/A'}
@@ -236,7 +273,7 @@ ${stats.fileExtensions.length > 0 ? stats.fileExtensions.join(', ') : 'N/A'}`;
 
     // Get stats first to show summary
     const stats = await this.getContributionStats();
-    if (!stats || stats.totalDiffs === 0) {
+    if (!stats || stats.totalEvents === 0) {
       vscode.window.showInformationMessage('No data to contribute yet. Start coding to collect data!');
       return;
     }
@@ -263,11 +300,12 @@ ${stats.fileExtensions.length > 0 ? stats.fileExtensions.join(', ') : 'N/A'}`;
     const cleanUsername = username.trim();
 
     // Show confirmation with stats summary
-    const humanPercent = ((stats.humanDiffs / stats.totalDiffs) * 100).toFixed(1);
-    const agentPercent = ((stats.agentDiffs / stats.totalDiffs) * 100).toFixed(1);
+    const humanPercent = ((stats.humanEvents / stats.totalEvents) * 100).toFixed(1);
+    const agentPercent = ((stats.agentEvents / stats.totalEvents) * 100).toFixed(1);
 
     const confirmMessage = `You're about to contribute:
-• ${stats.totalDiffs} diffs (${humanPercent}% human, ${agentPercent}% agent)
+• ${stats.totalEvents} events (${humanPercent}% human, ${agentPercent}% agent)
+• ${stats.totalInteractions} agent interactions
 • ${stats.totalSessions} sessions
 • ${stats.totalLinesAdded} lines added, ${stats.totalLinesRemoved} removed
 

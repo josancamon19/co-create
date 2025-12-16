@@ -3,6 +3,7 @@ import { BaseCollector } from './base';
 import { sessionManager } from '../session/manager';
 import { agentMonitor, AgentSubtype } from '../agent/monitor';
 import { AgentInteraction } from '../utils/cursor-db';
+import { EventSource, EventType } from '../database/schema';
 
 const DEBOUNCE_MS = 5000; // 5 seconds of inactivity triggers diff
 
@@ -176,10 +177,10 @@ export class DiffCollector extends BaseCollector {
     this.initFileState(document);
   }
 
-  private onDocumentClose(document: vscode.TextDocument): void {
+  private async onDocumentClose(document: vscode.TextDocument): Promise<void> {
     if (!this.shouldTrack(document)) return;
     const path = document.uri.fsPath;
-    this.flushDiff(path);
+    await this.flushDiff(path);
     this.fileStates.delete(path);
   }
 
@@ -197,45 +198,53 @@ export class DiffCollector extends BaseCollector {
       const text = new TextDecoder().decode(content);
       const lines = text.split('\n');
 
-      // Record as diff with all lines added
+      // Record as file_create event
       const diffLines = lines.map(line => `+ ${line}`);
 
-      sessionManager.recordDiff({
-        source,
-        agentSubtype,
-        agentModel: interaction?.model ?? null,
-        agentPrompt: interaction?.prompt ?? null,
-        agentResponse: interaction?.response ?? null,
-        agentThinking: interaction?.thinking ?? null,
-        agentToolUsage: interaction?.toolUsage ?? null,
-        agentInputTokens: interaction?.inputTokens ?? 0,
-        agentOutputTokens: interaction?.outputTokens ?? 0,
-        filePath: path,
-        diff: `[FILE CREATED]\n${diffLines.join('\n')}`,
-        linesAdded: lines.length,
-        linesRemoved: 0,
-      });
+      sessionManager.recordEvent(
+        {
+          source,
+          type: 'file_create',
+          filePath: path,
+          content: `[FILE CREATED]\n${diffLines.join('\n')}`,
+          linesAdded: lines.length,
+          linesRemoved: 0,
+          agentSubtype,
+          agentModel: interaction?.model ?? null,
+          agentPrompt: interaction?.prompt ?? null,
+          agentResponse: interaction?.response ?? null,
+          agentThinking: interaction?.thinking ?? null,
+          agentToolUsage: interaction?.toolUsage ?? null,
+          agentInputTokens: interaction?.inputTokens ?? 0,
+          agentOutputTokens: interaction?.outputTokens ?? 0,
+        },
+        interaction?.bubbleId
+      );
 
       const subtypeStr = agentSubtype ? ` (${agentSubtype})` : '';
       const modelStr = interaction?.model ? ` [${interaction.model.substring(0, 20)}]` : '';
       this.log(`Recorded ${source}${subtypeStr}${modelStr} file create: ${path}`);
     } catch {
       // File might be binary or unreadable
-      sessionManager.recordDiff({
-        source,
-        agentSubtype,
-        agentModel: interaction?.model ?? null,
-        agentPrompt: interaction?.prompt ?? null,
-        agentResponse: interaction?.response ?? null,
-        agentThinking: interaction?.thinking ?? null,
-        agentToolUsage: interaction?.toolUsage ?? null,
-        agentInputTokens: interaction?.inputTokens ?? 0,
-        agentOutputTokens: interaction?.outputTokens ?? 0,
-        filePath: path,
-        diff: '[FILE CREATED]',
-        linesAdded: 0,
-        linesRemoved: 0,
-      });
+      sessionManager.recordEvent(
+        {
+          source,
+          type: 'file_create',
+          filePath: path,
+          content: '[FILE CREATED]',
+          linesAdded: 0,
+          linesRemoved: 0,
+          agentSubtype,
+          agentModel: interaction?.model ?? null,
+          agentPrompt: interaction?.prompt ?? null,
+          agentResponse: interaction?.response ?? null,
+          agentThinking: interaction?.thinking ?? null,
+          agentToolUsage: interaction?.toolUsage ?? null,
+          agentInputTokens: interaction?.inputTokens ?? 0,
+          agentOutputTokens: interaction?.outputTokens ?? 0,
+        },
+        interaction?.bubbleId
+      );
     }
   }
 
@@ -255,42 +264,50 @@ export class DiffCollector extends BaseCollector {
       const lines = state.baseline.split('\n');
       const diffLines = lines.map(line => `- ${line}`);
 
-      sessionManager.recordDiff({
-        source,
-        agentSubtype,
-        agentModel: interaction?.model ?? null,
-        agentPrompt: interaction?.prompt ?? null,
-        agentResponse: interaction?.response ?? null,
-        agentThinking: interaction?.thinking ?? null,
-        agentToolUsage: interaction?.toolUsage ?? null,
-        agentInputTokens: interaction?.inputTokens ?? 0,
-        agentOutputTokens: interaction?.outputTokens ?? 0,
-        filePath: path,
-        diff: `[FILE DELETED]\n${diffLines.join('\n')}`,
-        linesAdded: 0,
-        linesRemoved: lines.length,
-      });
+      sessionManager.recordEvent(
+        {
+          source,
+          type: 'file_delete',
+          filePath: path,
+          content: `[FILE DELETED]\n${diffLines.join('\n')}`,
+          linesAdded: 0,
+          linesRemoved: lines.length,
+          agentSubtype,
+          agentModel: interaction?.model ?? null,
+          agentPrompt: interaction?.prompt ?? null,
+          agentResponse: interaction?.response ?? null,
+          agentThinking: interaction?.thinking ?? null,
+          agentToolUsage: interaction?.toolUsage ?? null,
+          agentInputTokens: interaction?.inputTokens ?? 0,
+          agentOutputTokens: interaction?.outputTokens ?? 0,
+        },
+        interaction?.bubbleId
+      );
 
       // Clean up state
       if (state.timeout) clearTimeout(state.timeout);
       this.fileStates.delete(path);
     } else {
       // No content tracked - just record the deletion
-      sessionManager.recordDiff({
-        source,
-        agentSubtype,
-        agentModel: interaction?.model ?? null,
-        agentPrompt: interaction?.prompt ?? null,
-        agentResponse: interaction?.response ?? null,
-        agentThinking: interaction?.thinking ?? null,
-        agentToolUsage: interaction?.toolUsage ?? null,
-        agentInputTokens: interaction?.inputTokens ?? 0,
-        agentOutputTokens: interaction?.outputTokens ?? 0,
-        filePath: path,
-        diff: '[FILE DELETED]',
-        linesAdded: 0,
-        linesRemoved: 0,
-      });
+      sessionManager.recordEvent(
+        {
+          source,
+          type: 'file_delete',
+          filePath: path,
+          content: '[FILE DELETED]',
+          linesAdded: 0,
+          linesRemoved: 0,
+          agentSubtype,
+          agentModel: interaction?.model ?? null,
+          agentPrompt: interaction?.prompt ?? null,
+          agentResponse: interaction?.response ?? null,
+          agentThinking: interaction?.thinking ?? null,
+          agentToolUsage: interaction?.toolUsage ?? null,
+          agentInputTokens: interaction?.inputTokens ?? 0,
+          agentOutputTokens: interaction?.outputTokens ?? 0,
+        },
+        interaction?.bubbleId
+      );
     }
 
     const subtypeStr = agentSubtype ? ` (${agentSubtype})` : '';
@@ -298,10 +315,10 @@ export class DiffCollector extends BaseCollector {
     this.log(`Recorded ${source}${subtypeStr}${modelStr} file delete: ${path}`);
   }
 
-  private onFileSwitch(editor: vscode.TextEditor | undefined): void {
+  private async onFileSwitch(editor: vscode.TextEditor | undefined): Promise<void> {
     // Flush diff for previous file
     if (this.activeFile) {
-      this.flushDiff(this.activeFile);
+      await this.flushDiff(this.activeFile);
     }
 
     // Update active file
@@ -327,40 +344,49 @@ export class DiffCollector extends BaseCollector {
     // Update current content
     state.current = document.getText();
 
-    // Check if this change was from a tab completion (explicit via command wrapper)
+    // First, check if this change was from explicit tab completion (via command wrapper)
     let explicitTabCompletion = false;
     if (this.pendingTabCompletion) {
       state.hadTabCompletion = true;
       explicitTabCompletion = true;
       this.pendingTabCompletion = false;
       this.log(`Tab completion detected for ${path}`);
-    } else {
-      // Additional heuristic: if a single change added many characters (>10) at once,
-      // it's likely an autocomplete, not manual typing
-      for (const change of event.contentChanges) {
-        const addedChars = change.text.length;
-        const removedChars = change.rangeLength;
-        // If we added significantly more than we removed and it's substantial
-        if (addedChars > 10 && addedChars > removedChars * 2) {
-          // Check if it's not from agent activity
-          if (!agentMonitor.isAgentActive()) {
-            state.hadTabCompletion = true;
-            this.log(`Tab completion (heuristic) detected for ${path}: +${addedChars} chars`);
-          }
-        }
-      }
     }
 
     // Capture agent activity at change time, not flush time
-    // This is critical for Cmd+K inline edits where user accepts after AI generates
-    // BUT: Don't override explicit tab completion detection - accepting a ghost text
-    // suggestion is a specific user action that shouldn't be classified as agent activity
+    // This is critical for chat/composer edits where user accepts after AI generates
+    // Check agent activity BEFORE applying any heuristics
     if (agentMonitor.isAgentActive() && !explicitTabCompletion) {
       state.hadAgentActivity = true;
       state.agentSubtype = agentMonitor.getAgentSubtype();
       state.agentInteraction = agentMonitor.getAgentInteraction();
       const model = state.agentInteraction?.model?.substring(0, 20) || 'N/A';
       this.log(`Agent activity captured for ${path} (subtype: ${state.agentSubtype}, model: ${model})`);
+    }
+
+    // ONLY apply tab completion heuristic if:
+    // 1. Not explicit tab completion (already handled)
+    // 2. Not already marked as agent activity
+    // 3. The change looks like an autocomplete (adds chars without removing much)
+    // 4. Not a net removal operation (which would indicate undo/reject)
+    if (!explicitTabCompletion && !state.hadAgentActivity) {
+      for (const change of event.contentChanges) {
+        const addedChars = change.text.length;
+        const removedChars = change.rangeLength;
+        // Only trigger for NET additions (not undos/removals)
+        // Tab completion typically adds text at cursor without removing much
+        // Also require this to be a single-line or short addition (< 500 chars)
+        // to avoid catching multi-line agent edits
+        const isNetAddition = addedChars > removedChars;
+        const isModerateSize = addedChars > 10 && addedChars < 500;
+        const isSingleLineish = !change.text.includes('\n') || change.text.split('\n').length <= 3;
+
+        if (isNetAddition && isModerateSize && isSingleLineish && addedChars > removedChars * 2) {
+          state.hadTabCompletion = true;
+          this.log(`Tab completion (heuristic) detected for ${path}: +${addedChars}/-${removedChars} chars`);
+          break;
+        }
+      }
     }
 
     // Reset debounce timer
@@ -373,7 +399,7 @@ export class DiffCollector extends BaseCollector {
     }, DEBOUNCE_MS);
   }
 
-  private flushDiff(filePath: string): void {
+  private async flushDiff(filePath: string): Promise<void> {
     const state = this.fileStates.get(filePath);
     if (!state) return;
 
@@ -396,11 +422,27 @@ export class DiffCollector extends BaseCollector {
     // Compute diff
     const diff = this.computeDiff(state.baseline, state.current);
 
+    // If we haven't captured agent activity yet and this is a significant change,
+    // force a check for recent agent activity before determining source
+    if (!state.hadAgentActivity && (diff.added > 5 || diff.removed > 5)) {
+      await agentMonitor.forceCheckForAgentActivity();
+      // Check again after force refresh
+      if (agentMonitor.isAgentActive()) {
+        state.hadAgentActivity = true;
+        state.agentSubtype = agentMonitor.getAgentSubtype();
+        state.agentInteraction = agentMonitor.getAgentInteraction();
+        // If we detected agent activity, clear the tab completion flag
+        // (was likely misclassified by the heuristic)
+        state.hadTabCompletion = false;
+        this.log(`Agent activity detected on flush for ${filePath}`);
+      }
+    }
+
     // Determine source with priority:
     // 1. Agent activity (Cmd+K, composer) takes highest priority
     // 2. Tab completion (human-agent collaboration)
     // 3. Human (pure manual edits)
-    let source: 'human' | 'agent' | 'tab-completion';
+    let source: EventSource;
     let agentSubtype: AgentSubtype = null;
     let interaction: AgentInteraction | null = null;
     if (state.hadAgentActivity) {
@@ -417,22 +459,26 @@ export class DiffCollector extends BaseCollector {
       }
     }
 
-    // Record
-    sessionManager.recordDiff({
-      source,
-      agentSubtype,
-      agentModel: interaction?.model ?? null,
-      agentPrompt: interaction?.prompt ?? null,
-      agentResponse: interaction?.response ?? null,
-      agentThinking: interaction?.thinking ?? null,
-      agentToolUsage: interaction?.toolUsage ?? null,
-      agentInputTokens: interaction?.inputTokens ?? 0,
-      agentOutputTokens: interaction?.outputTokens ?? 0,
-      filePath,
-      diff: diff.text,
-      linesAdded: diff.added,
-      linesRemoved: diff.removed,
-    });
+    // Record event
+    sessionManager.recordEvent(
+      {
+        source,
+        type: 'diff',
+        filePath,
+        content: diff.text,
+        linesAdded: diff.added,
+        linesRemoved: diff.removed,
+        agentSubtype,
+        agentModel: interaction?.model ?? null,
+        agentPrompt: interaction?.prompt ?? null,
+        agentResponse: interaction?.response ?? null,
+        agentThinking: interaction?.thinking ?? null,
+        agentToolUsage: interaction?.toolUsage ?? null,
+        agentInputTokens: interaction?.inputTokens ?? 0,
+        agentOutputTokens: interaction?.outputTokens ?? 0,
+      },
+      interaction?.bubbleId
+    );
 
     const subtypeStr = agentSubtype ? ` (${agentSubtype})` : '';
     const modelStr = interaction?.model ? ` [${interaction.model.substring(0, 20)}]` : '';
@@ -579,11 +625,15 @@ export class DiffCollector extends BaseCollector {
   }
 
   dispose(): void {
-    // Flush all pending diffs
+    // Flush all pending diffs (fire and forget since we're disposing)
+    const flushPromises: Promise<void>[] = [];
     for (const path of this.fileStates.keys()) {
-      this.flushDiff(path);
+      flushPromises.push(this.flushDiff(path));
     }
-    this.fileStates.clear();
+    // Wait for all flushes to complete before clearing state
+    Promise.all(flushPromises).finally(() => {
+      this.fileStates.clear();
+    });
     super.dispose();
   }
 }

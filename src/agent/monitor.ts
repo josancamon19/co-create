@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import { getAIBubbleCount, getInlineDiffCount, getMostRecentAIGeneration, getLatestAgentInteraction, getLatestAIBubbleTimestamp, AgentInteraction } from '../utils/cursor-db';
 
-// How long to consider "agent is active" after detecting AI activity
-// Increased to 30 seconds to handle Cmd+K inline edits where user may review before accepting
-const AGENT_ACTIVITY_WINDOW_MS = 30000; // 30 seconds
+// How long to consider an agent activity as "recent" for immediate changes
+// This is for changes that happen right after agent generation (e.g., applying suggested code)
+const RECENT_AGENT_ACTIVITY_MS = 10000; // 10 seconds
 
 export type AgentSubtype = 'cmdk' | 'composer' | null;
 
@@ -19,6 +19,12 @@ export class AgentActivityMonitor {
   private lastKnownGenerationTime: number = 0;
   private isRunning: boolean = false;
   private pollIntervalMs: number;
+
+  // Track whether the current agent activity has been "consumed" by a change
+  // This prevents the same agent activity from being attributed to multiple change batches
+  private agentActivityConsumed: boolean = false;
+  // Track when we detected NEW activity (not just any activity within window)
+  private newActivityDetectedAt: number = 0;
 
   private constructor() {
     const config = vscode.workspace.getConfiguration('cursorCollector');
@@ -57,11 +63,24 @@ export class AgentActivityMonitor {
   }
 
   /**
-   * Returns true if the agent was recently active (within the activity window)
+   * Returns true if there is PENDING agent activity that hasn't been consumed yet,
+   * or if the agent was very recently active (within RECENT_AGENT_ACTIVITY_MS).
+   *
+   * This prevents human changes from being incorrectly attributed to old agent activity.
    */
   isAgentActive(): boolean {
-    const timeSinceActivity = Date.now() - this.lastAgentActivityTime;
-    return timeSinceActivity < AGENT_ACTIVITY_WINDOW_MS;
+    // If activity was already consumed by a previous change, not active
+    if (this.agentActivityConsumed) {
+      return false;
+    }
+
+    // Check if we detected new activity recently
+    const timeSinceNewActivity = Date.now() - this.newActivityDetectedAt;
+    if (timeSinceNewActivity < RECENT_AGENT_ACTIVITY_MS) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -113,15 +132,42 @@ export class AgentActivityMonitor {
   }
 
   /**
+   * Mark the current agent activity as consumed.
+   * Call this after attributing a change to the agent to prevent
+   * the same activity from being attributed to subsequent human changes.
+   */
+  consumeAgentActivity(): void {
+    this.agentActivityConsumed = true;
+    console.log('[AgentMonitor] Agent activity consumed');
+  }
+
+  /**
    * Manually mark agent as active with full interaction data
    */
   markAgentActive(subtype: AgentSubtype = null, interaction: AgentInteraction | null = null): void {
     this.lastAgentActivityTime = Date.now();
+    this.newActivityDetectedAt = Date.now();
     this.lastAgentSubtype = subtype;
     this.lastAgentInteraction = interaction;
+    this.agentActivityConsumed = false; // New activity, not consumed yet
     const model = interaction?.model?.substring(0, 30) || 'N/A';
     const prompt = interaction?.prompt?.substring(0, 50) || 'N/A';
     console.log(`[AgentMonitor] Agent activity detected (subtype: ${subtype}, model: ${model}, prompt: ${prompt}...)`);
+  }
+
+  /**
+   * Force an immediate check for agent activity.
+   * Returns true if new activity was detected.
+   * Use this when large changes are detected to ensure we don't miss agent activity.
+   */
+  async forceCheckForAgentActivity(): Promise<boolean> {
+    const wasActive = this.isAgentActive();
+    await this.checkForAgentActivity();
+    const isNowActive = this.isAgentActive();
+
+    // Return true if we detected new activity (wasn't active before, is now)
+    // or if activity state changed
+    return !wasActive && isNowActive;
   }
 
   private async checkForAgentActivity(): Promise<void> {
@@ -135,8 +181,7 @@ export class AgentActivityMonitor {
       // This is the most reliable source for model, prompt, response, etc.
       const latestBubbleTimestamp = await getLatestAIBubbleTimestamp();
       if (latestBubbleTimestamp && latestBubbleTimestamp !== this.lastKnownBubbleTimestamp) {
-        // NEW bubble detected - always mark as active, regardless of age
-        // User might be reviewing the AI output before accepting changes
+        // NEW bubble detected - mark as active
         const interaction = await getLatestAgentInteraction();
         if (interaction) {
           const bubbleTime = new Date(latestBubbleTimestamp).getTime();
@@ -204,7 +249,8 @@ export class AgentActivityMonitor {
 
       // Log status
       const totalCount = await getAIBubbleCount();
-      console.log('[AgentMonitor] Status - Bubbles:', totalCount, 'InlineDiffs:', inlineDiffCount, 'GenTime:', this.lastKnownGenerationTime);
+      const isActive = this.isAgentActive();
+      console.log('[AgentMonitor] Status - Bubbles:', totalCount, 'InlineDiffs:', inlineDiffCount, 'Active:', isActive, 'Consumed:', this.agentActivityConsumed);
 
     } catch (error) {
       console.error('[AgentMonitor] Error checking activity:', error);

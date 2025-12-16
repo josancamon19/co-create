@@ -110,7 +110,7 @@ async function showStats(): Promise<void> {
   const message = `
 Project: ${stats.projectName || 'Unknown'}
 Session ID: ${stats.sessionId}
-Total Diffs: ${stats.totalDiffs}
+Total Events: ${stats.totalEvents}
 Duration: ${durationStr}
   `.trim();
 
