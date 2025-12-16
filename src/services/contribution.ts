@@ -254,12 +254,17 @@ ${stats.fileExtensions.length > 0 ? stats.fileExtensions.join(', ') : 'N/A'}`;
   }
 
   openGitHubIssue(stats: ContributionStats, gcpUrl: string, username: string): void {
-    const title = encodeURIComponent(`Data Contribution: ${username}`);
-    const body = encodeURIComponent(this.formatStatsForIssue(stats, gcpUrl, username));
+    const title = `Data Contribution: ${username}`;
+    const body = this.formatStatsForIssue(stats, gcpUrl, username);
 
-    const issueUrl = `https://github.com/${GITHUB_REPO}/issues/new?title=${title}&body=${body}&labels=contribution`;
+    // Use URL API to properly construct and encode the URL
+    const url = new URL(`https://github.com/${GITHUB_REPO}/issues/new`);
+    url.searchParams.set('title', title);
+    url.searchParams.set('body', body);
+    url.searchParams.set('labels', 'contribution');
 
-    vscode.env.openExternal(vscode.Uri.parse(issueUrl));
+    // Parse the properly encoded URL string
+    vscode.env.openExternal(vscode.Uri.parse(url.toString()));
   }
 
   async contribute(): Promise<void> {
