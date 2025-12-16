@@ -3,7 +3,8 @@ import { BaseCollector } from './base';
 import { sessionManager } from '../session/manager';
 import { agentMonitor, AgentSubtype } from '../agent/monitor';
 import { AgentInteraction } from '../utils/cursor-db';
-import { EventSource, EventType } from '../database/schema';
+import { EventSource } from '../database/schema';
+import { humanInputTracker } from './human-input-tracker';
 
 const DEBOUNCE_MS = 5000; // 5 seconds of inactivity triggers diff
 
@@ -17,8 +18,10 @@ interface FileState {
   agentSubtype: AgentSubtype;
   // Track the full agent interaction data
   agentInteraction: AgentInteraction | null;
-  // Track if tab completion was used during this batch
-  hadTabCompletion: boolean;
+  // Track total human-typed characters in this batch (DETERMINISTIC via `type` command)
+  humanTypedChars: number;
+  // Track total external characters in this batch (everything not from `type` command)
+  externalChars: number;
 }
 
 export class DiffCollector extends BaseCollector {
@@ -75,8 +78,11 @@ export class DiffCollector extends BaseCollector {
 
     this.addDisposable(watcher);
 
-    // Register command wrappers to detect tab completions
+    // Register command wrappers to detect tab completions (legacy, kept as backup)
     this.registerTabCompletionTracking(context);
+
+    // Register deterministic human input tracker (via `type` command)
+    humanInputTracker.register(context);
 
     // Initialize with current active editor
     if (vscode.window.activeTextEditor) {
@@ -92,7 +98,7 @@ export class DiffCollector extends BaseCollector {
   }
 
   /**
-   * Register command wrappers to detect when tab completions are accepted
+   * Register command wrappers to detect when Tab is pressed
    */
   private registerTabCompletionTracking(context: vscode.ExtensionContext): void {
     // Commands that accept inline suggestions (Cursor/Copilot style ghost text)
@@ -107,47 +113,68 @@ export class DiffCollector extends BaseCollector {
       const wrapper = vscode.commands.registerCommand(
         `cursorCollector.wrap.${commandId}`,
         async () => {
-          this.log(`Tab completion command: ${commandId}`);
+          console.log(`[DiffCollector] *** TAB WRAPPER CALLED: ${commandId} ***`);
           this.pendingTabCompletion = true;
+
+          // Also notify the humanInputTracker
+          const editor = vscode.window.activeTextEditor;
+          if (editor) {
+            humanInputTracker.markTabPressed(editor.document.uri.fsPath);
+          }
 
           // Execute the original command
           try {
             await vscode.commands.executeCommand(commandId);
           } catch (e) {
-            // Command might not exist or fail, that's ok
+            console.log(`[DiffCollector] Command ${commandId} failed:`, e);
           }
 
           // Clear the flag after a short delay if no change was detected
           setTimeout(() => {
             this.pendingTabCompletion = false;
-          }, 100);
+          }, 1000);
         }
       );
 
       this.addDisposable(wrapper);
     }
 
-    // Register keybinding overrides for Tab key when suggestions are visible
-    // This is done via package.json keybindings, but we can detect via the commands above
-    this.log('Tab completion tracking registered');
-  }
+    // Register a general Tab key wrapper to catch ALL Tab presses
+    const generalTabWrapper = vscode.commands.registerCommand(
+      'cursorCollector.wrap.tab',
+      async () => {
+        console.log(`[DiffCollector] *** GENERAL TAB PRESSED ***`);
+        const editor = vscode.window.activeTextEditor;
+        if (editor) {
+          humanInputTracker.markTabPressed(editor.document.uri.fsPath);
+        }
 
-  /**
-   * Mark that a tab completion just happened for the current file
-   */
-  markTabCompletion(): void {
-    if (this.activeFile) {
-      const state = this.fileStates.get(this.activeFile);
-      if (state) {
-        state.hadTabCompletion = true;
-        this.log(`Tab completion marked for ${this.activeFile}`);
+        // Execute the default tab action
+        try {
+          await vscode.commands.executeCommand('tab');
+        } catch (e) {
+          // Fallback to indent
+          try {
+            await vscode.commands.executeCommand('editor.action.indentLines');
+          } catch (e2) {
+            console.log('[DiffCollector] Tab commands failed');
+          }
+        }
       }
-    }
+    );
+    this.addDisposable(generalTabWrapper);
+
+    this.log('Tab completion tracking registered');
   }
 
   private shouldTrack(document: vscode.TextDocument): boolean {
     if (document.uri.scheme !== 'file') return false;
     return this.shouldTrackPath(document.uri.fsPath);
+  }
+
+  private getWorkspacePathForFile(filePath: string): string | null {
+    const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath));
+    return folder?.uri.fsPath ?? null;
   }
 
   private shouldTrackPath(path: string): boolean {
@@ -167,7 +194,8 @@ export class DiffCollector extends BaseCollector {
         hadAgentActivity: false,
         agentSubtype: null,
         agentInteraction: null,
-        hadTabCompletion: false,
+        humanTypedChars: 0,
+        externalChars: 0,
       });
     }
   }
@@ -188,9 +216,10 @@ export class DiffCollector extends BaseCollector {
     const path = uri.fsPath;
     if (!this.shouldTrackPath(path)) return;
 
-    const source = agentMonitor.getSource();
-    const agentSubtype = source === 'agent' ? agentMonitor.getAgentSubtype() : null;
-    const interaction = source === 'agent' ? agentMonitor.getAgentInteraction() : null;
+    const workspacePath = this.getWorkspacePathForFile(path);
+    const source = agentMonitor.getSource(workspacePath || undefined);
+    const agentSubtype = source === 'agent' ? agentMonitor.getAgentSubtype(workspacePath || undefined) : null;
+    const interaction = source === 'agent' ? agentMonitor.getAgentInteraction(workspacePath || undefined) : null;
 
     // Read the new file content
     try {
@@ -224,6 +253,10 @@ export class DiffCollector extends BaseCollector {
       const subtypeStr = agentSubtype ? ` (${agentSubtype})` : '';
       const modelStr = interaction?.model ? ` [${interaction.model.substring(0, 20)}]` : '';
       this.log(`Recorded ${source}${subtypeStr}${modelStr} file create: ${path}`);
+
+      if (source === 'agent') {
+        agentMonitor.consumeAgentActivity();
+      }
     } catch {
       // File might be binary or unreadable
       sessionManager.recordEvent(
@@ -245,6 +278,10 @@ export class DiffCollector extends BaseCollector {
         },
         interaction?.bubbleId
       );
+
+      if (source === 'agent') {
+        agentMonitor.consumeAgentActivity();
+      }
     }
   }
 
@@ -252,9 +289,10 @@ export class DiffCollector extends BaseCollector {
     const path = uri.fsPath;
     if (!this.shouldTrackPath(path)) return;
 
-    const source = agentMonitor.getSource();
-    const agentSubtype = source === 'agent' ? agentMonitor.getAgentSubtype() : null;
-    const interaction = source === 'agent' ? agentMonitor.getAgentInteraction() : null;
+    const workspacePath = this.getWorkspacePathForFile(path);
+    const source = agentMonitor.getSource(workspacePath || undefined);
+    const agentSubtype = source === 'agent' ? agentMonitor.getAgentSubtype(workspacePath || undefined) : null;
+    const interaction = source === 'agent' ? agentMonitor.getAgentInteraction(workspacePath || undefined) : null;
 
     // Check if we have baseline content
     const state = this.fileStates.get(path);
@@ -313,6 +351,10 @@ export class DiffCollector extends BaseCollector {
     const subtypeStr = agentSubtype ? ` (${agentSubtype})` : '';
     const modelStr = interaction?.model ? ` [${interaction.model.substring(0, 20)}]` : '';
     this.log(`Recorded ${source}${subtypeStr}${modelStr} file delete: ${path}`);
+
+    if (source === 'agent') {
+      agentMonitor.consumeAgentActivity();
+    }
   }
 
   private async onFileSwitch(editor: vscode.TextEditor | undefined): Promise<void> {
@@ -340,52 +382,42 @@ export class DiffCollector extends BaseCollector {
     this.initFileState(document);
 
     const state = this.fileStates.get(path)!;
+    const workspacePath = this.getWorkspacePathForFile(path);
 
     // Update current content
     state.current = document.getText();
 
-    // First, check if this change was from explicit tab completion (via command wrapper)
-    let explicitTabCompletion = false;
-    if (this.pendingTabCompletion) {
-      state.hadTabCompletion = true;
-      explicitTabCompletion = true;
-      this.pendingTabCompletion = false;
-      this.log(`Tab completion detected for ${path}`);
-    }
+    // Calculate total added/removed for this change
+    const totalAdded = event.contentChanges.reduce((sum, c) => sum + c.text.length, 0);
+    const totalRemoved = event.contentChanges.reduce((sum, c) => sum + c.rangeLength, 0);
+    const addedText = event.contentChanges.map(c => c.text).join('');
 
-    // Capture agent activity at change time, not flush time
-    // This is critical for chat/composer edits where user accepts after AI generates
-    // Check agent activity BEFORE applying any heuristics
-    if (agentMonitor.isAgentActive() && !explicitTabCompletion) {
-      state.hadAgentActivity = true;
-      state.agentSubtype = agentMonitor.getAgentSubtype();
-      state.agentInteraction = agentMonitor.getAgentInteraction();
-      const model = state.agentInteraction?.model?.substring(0, 20) || 'N/A';
-      this.log(`Agent activity captured for ${path} (subtype: ${state.agentSubtype}, model: ${model})`);
-    }
+    // DETERMINISTIC classification using humanInputTracker
+    // Simple: HUMAN (typed via `type` command) vs EXTERNAL (everything else)
+    const classification = humanInputTracker.classifyChange(
+      path,
+      addedText,
+      totalRemoved,
+      event.reason
+    );
 
-    // ONLY apply tab completion heuristic if:
-    // 1. Not explicit tab completion (already handled)
-    // 2. Not already marked as agent activity
-    // 3. The change looks like an autocomplete (adds chars without removing much)
-    // 4. Not a net removal operation (which would indicate undo/reject)
-    if (!explicitTabCompletion && !state.hadAgentActivity) {
-      for (const change of event.contentChanges) {
-        const addedChars = change.text.length;
-        const removedChars = change.rangeLength;
-        // Only trigger for NET additions (not undos/removals)
-        // Tab completion typically adds text at cursor without removing much
-        // Also require this to be a single-line or short addition (< 500 chars)
-        // to avoid catching multi-line agent edits
-        const isNetAddition = addedChars > removedChars;
-        const isModerateSize = addedChars > 10 && addedChars < 500;
-        const isSingleLineish = !change.text.includes('\n') || change.text.split('\n').length <= 3;
+    // Update state based on deterministic classification
+    if (classification.type === 'human') {
+      state.humanTypedChars += classification.humanChars;
+      this.log(`HUMAN: +${classification.humanChars} chars in ${path}`);
+    } else {
+      // 'external' - could be agent, paste, undo, redo, selection ops, tab completion, etc.
+      state.externalChars += classification.externalChars;
 
-        if (isNetAddition && isModerateSize && isSingleLineish && addedChars > removedChars * 2) {
-          state.hadTabCompletion = true;
-          this.log(`Tab completion (heuristic) detected for ${path}: +${addedChars}/-${removedChars} chars`);
-          break;
-        }
+      // Check if this external change correlates with agent activity
+      if (agentMonitor.isAgentActive(workspacePath || undefined)) {
+        state.hadAgentActivity = true;
+        state.agentSubtype = agentMonitor.getAgentSubtype(workspacePath || undefined);
+        state.agentInteraction = agentMonitor.getAgentInteraction(workspacePath || undefined);
+        const model = state.agentInteraction?.model?.substring(0, 20) || 'N/A';
+        this.log(`EXTERNAL (agent): +${classification.externalChars} chars in ${path} (model: ${model})`);
+      } else {
+        this.log(`EXTERNAL (unknown): +${classification.externalChars} chars in ${path}`);
       }
     }
 
@@ -402,6 +434,7 @@ export class DiffCollector extends BaseCollector {
   private async flushDiff(filePath: string): Promise<void> {
     const state = this.fileStates.get(filePath);
     if (!state) return;
+    const workspacePath = this.getWorkspacePathForFile(filePath);
 
     // Clear timeout
     if (state.timeout) {
@@ -415,49 +448,49 @@ export class DiffCollector extends BaseCollector {
       state.hadAgentActivity = false;
       state.agentSubtype = null;
       state.agentInteraction = null;
-      state.hadTabCompletion = false;
+      state.humanTypedChars = 0;
+      state.externalChars = 0;
+      humanInputTracker.clearBuffer(filePath);
       return;
     }
 
     // Compute diff
     const diff = this.computeDiff(state.baseline, state.current);
 
-    // If we haven't captured agent activity yet and this is a significant change,
-    // force a check for recent agent activity before determining source
-    if (!state.hadAgentActivity && (diff.added > 5 || diff.removed > 5)) {
-      await agentMonitor.forceCheckForAgentActivity();
-      // Check again after force refresh
-      if (agentMonitor.isAgentActive()) {
-        state.hadAgentActivity = true;
-        state.agentSubtype = agentMonitor.getAgentSubtype();
-        state.agentInteraction = agentMonitor.getAgentInteraction();
-        // If we detected agent activity, clear the tab completion flag
-        // (was likely misclassified by the heuristic)
-        state.hadTabCompletion = false;
-        this.log(`Agent activity detected on flush for ${filePath}`);
-      }
-    }
-
-    // Determine source with priority:
-    // 1. Agent activity (Cmd+K, composer) takes highest priority
-    // 2. Tab completion (human-agent collaboration)
-    // 3. Human (pure manual edits)
-    let source: EventSource;
+    // DETERMINISTIC source determination:
+    // - If we tracked human typing (humanTypedChars > 0), it's HUMAN
+    // - If only external chars with agent activity, it's AGENT
+    // - If only external chars without agent activity, it's EXTERNAL (paste, undo, etc.)
+    let source: EventSource = 'human';
     let agentSubtype: AgentSubtype = null;
     let interaction: AgentInteraction | null = null;
+
+    // Log the deterministic tracking results
+    this.log(`Flush stats for ${filePath}: humanTypedChars=${state.humanTypedChars}, externalChars=${state.externalChars}, hadAgentActivity=${state.hadAgentActivity}`);
+
     if (state.hadAgentActivity) {
+      // Agent activity was detected during changes
       source = 'agent';
       agentSubtype = state.agentSubtype;
       interaction = state.agentInteraction;
-    } else if (state.hadTabCompletion) {
-      source = 'tab-completion';
-    } else {
-      source = agentMonitor.isAgentActive() ? 'agent' : 'human';
-      if (source === 'agent') {
-        agentSubtype = agentMonitor.getAgentSubtype();
-        interaction = agentMonitor.getAgentInteraction();
+    } else if (state.externalChars > 0 && state.humanTypedChars === 0) {
+      // All external changes, no human typing detected
+      // Double-check with agent monitor as fallback
+      await agentMonitor.forceCheckForAgentActivity(workspacePath || undefined);
+      if (agentMonitor.isAgentActive(workspacePath || undefined)) {
+        source = 'agent';
+        agentSubtype = agentMonitor.getAgentSubtype(workspacePath || undefined);
+        interaction = agentMonitor.getAgentInteraction(workspacePath || undefined);
+        this.log(`Agent activity detected on flush for ${filePath}`);
+      } else {
+        // External change without agent - could be paste, undo, redo, tab completion, etc.
+        // Keep as 'human' since user initiated it, just not via typing
+        this.log(`External change (non-agent) for ${filePath} - paste/undo/redo/completion`);
       }
     }
+    // If humanTypedChars > 0, source stays 'human' (DETERMINISTIC - we KNOW they typed)
+
+    const content = diff.text;
 
     // Record event
     sessionManager.recordEvent(
@@ -465,7 +498,7 @@ export class DiffCollector extends BaseCollector {
         source,
         type: 'diff',
         filePath,
-        content: diff.text,
+        content,
         linesAdded: diff.added,
         linesRemoved: diff.removed,
         agentSubtype,
@@ -482,14 +515,22 @@ export class DiffCollector extends BaseCollector {
 
     const subtypeStr = agentSubtype ? ` (${agentSubtype})` : '';
     const modelStr = interaction?.model ? ` [${interaction.model.substring(0, 20)}]` : '';
-    this.log(`Recorded ${source}${subtypeStr}${modelStr} diff for ${filePath} (+${diff.added}/-${diff.removed})`);
+    const humanStr = state.humanTypedChars > 0 ? ` [human=${state.humanTypedChars}]` : '';
+    const extStr = state.externalChars > 0 ? ` [ext=${state.externalChars}]` : '';
+    this.log(`Recorded ${source}${subtypeStr}${modelStr}${humanStr}${extStr} diff for ${filePath} (+${diff.added}/-${diff.removed})`);
 
-    // Update baseline and reset flags
+    if (source === 'agent') {
+      agentMonitor.consumeAgentActivity();
+    }
+
+    // Update baseline and reset all tracking state
     state.baseline = state.current;
     state.hadAgentActivity = false;
     state.agentSubtype = null;
     state.agentInteraction = null;
-    state.hadTabCompletion = false;
+    state.humanTypedChars = 0;
+    state.externalChars = 0;
+    humanInputTracker.clearBuffer(filePath);
   }
 
   private computeDiff(oldText: string, newText: string): { text: string; added: number; removed: number } {

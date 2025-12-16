@@ -18,6 +18,11 @@
     "keybindings": [
       {
         "key": "tab",
+        "command": "cursorCollector.wrap.tab",
+        "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible && !inlineSuggestionVisible"
+      },
+      {
+        "key": "tab",
         "command": "cursorCollector.wrap.editor.action.inlineSuggest.commit",
         "when": "inlineSuggestionVisible && !editorReadonly && !suggestWidgetVisible"
       },

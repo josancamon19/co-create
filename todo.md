@@ -1,6 +1,6 @@
 ### TODO's:
 
-- [ ] human/agent/tab-completion types is not super accurate, as well as agent sub types (composer, cmdk) (PRIORITY)
+- [ ] human/agent/tab-completion types is not super accurate, as well as agent sub types (composer, cmdk) (PRItORITY)
 - [ ] collect human terminal commands as well, input <> output
 - [ ] track committing and pushing as an event
 - [ ] extra fields to define step i to j is atempting a task (this could happen locally or also on admin dashboard, or authenticated user)

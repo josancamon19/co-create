@@ -2,8 +2,8 @@ import * as vscode from 'vscode';
 import { getAIBubbleCount, getInlineDiffCount, getMostRecentAIGeneration, getLatestAgentInteraction, getLatestAIBubbleTimestamp, AgentInteraction } from '../utils/cursor-db';
 
 // How long to consider an agent activity as "recent" for immediate changes
-// This is for changes that happen right after agent generation (e.g., applying suggested code)
-const RECENT_AGENT_ACTIVITY_MS = 10000; // 10 seconds
+// Shorter window reduces bleed-over into later human edits
+const RECENT_AGENT_ACTIVITY_MS = 4000; // 4 seconds
 
 export type AgentSubtype = 'cmdk' | 'composer' | null;
 
@@ -14,6 +14,7 @@ export class AgentActivityMonitor {
   private lastAgentActivityTime: number = 0;
   private lastAgentSubtype: AgentSubtype = null;
   private lastAgentInteraction: AgentInteraction | null = null;
+  private lastWorkspaceFsPath: string | null = null;
   private lastKnownBubbleTimestamp: string | null = null;
   private lastKnownInlineDiffCount: number = 0;
   private lastKnownGenerationTime: number = 0;
@@ -68,7 +69,7 @@ export class AgentActivityMonitor {
    *
    * This prevents human changes from being incorrectly attributed to old agent activity.
    */
-  isAgentActive(): boolean {
+  isAgentActive(workspaceFsPath?: string): boolean {
     // If activity was already consumed by a previous change, not active
     if (this.agentActivityConsumed) {
       return false;
@@ -77,6 +78,12 @@ export class AgentActivityMonitor {
     // Check if we detected new activity recently
     const timeSinceNewActivity = Date.now() - this.newActivityDetectedAt;
     if (timeSinceNewActivity < RECENT_AGENT_ACTIVITY_MS) {
+      if (workspaceFsPath && this.lastWorkspaceFsPath) {
+        // Only treat as active if the current change is within the same workspace
+        if (!workspaceFsPath.startsWith(this.lastWorkspaceFsPath)) {
+          return false;
+        }
+      }
       return true;
     }
 
@@ -86,16 +93,16 @@ export class AgentActivityMonitor {
   /**
    * Get the source for a change based on current agent activity
    */
-  getSource(): 'human' | 'agent' {
-    return this.isAgentActive() ? 'agent' : 'human';
+  getSource(workspaceFsPath?: string): 'human' | 'agent' {
+    return this.isAgentActive(workspaceFsPath) ? 'agent' : 'human';
   }
 
   /**
    * Get the subtype of the most recent agent activity
    * Returns null if no agent activity or if subtype is unknown
    */
-  getAgentSubtype(): AgentSubtype {
-    if (!this.isAgentActive()) {
+  getAgentSubtype(workspaceFsPath?: string): AgentSubtype {
+    if (!this.isAgentActive(workspaceFsPath)) {
       return null;
     }
     return this.lastAgentSubtype;
@@ -104,8 +111,8 @@ export class AgentActivityMonitor {
   /**
    * Get the model used for the most recent agent activity
    */
-  getAgentModel(): string | null {
-    if (!this.isAgentActive()) {
+  getAgentModel(workspaceFsPath?: string): string | null {
+    if (!this.isAgentActive(workspaceFsPath)) {
       return null;
     }
     return this.lastAgentInteraction?.model ?? null;
@@ -114,8 +121,8 @@ export class AgentActivityMonitor {
   /**
    * Get the prompt/instruction for the most recent agent activity
    */
-  getAgentPrompt(): string | null {
-    if (!this.isAgentActive()) {
+  getAgentPrompt(workspaceFsPath?: string): string | null {
+    if (!this.isAgentActive(workspaceFsPath)) {
       return null;
     }
     return this.lastAgentInteraction?.prompt ?? null;
@@ -124,8 +131,8 @@ export class AgentActivityMonitor {
   /**
    * Get the full agent interaction data
    */
-  getAgentInteraction(): AgentInteraction | null {
-    if (!this.isAgentActive()) {
+  getAgentInteraction(workspaceFsPath?: string): AgentInteraction | null {
+    if (!this.isAgentActive(workspaceFsPath)) {
       return null;
     }
     return this.lastAgentInteraction;
@@ -144,11 +151,16 @@ export class AgentActivityMonitor {
   /**
    * Manually mark agent as active with full interaction data
    */
-  markAgentActive(subtype: AgentSubtype = null, interaction: AgentInteraction | null = null): void {
+  markAgentActive(
+    subtype: AgentSubtype = null,
+    interaction: AgentInteraction | null = null,
+    workspaceFsPath?: string | null,
+  ): void {
     this.lastAgentActivityTime = Date.now();
     this.newActivityDetectedAt = Date.now();
     this.lastAgentSubtype = subtype;
     this.lastAgentInteraction = interaction;
+    this.lastWorkspaceFsPath = workspaceFsPath ?? null;
     this.agentActivityConsumed = false; // New activity, not consumed yet
     const model = interaction?.model?.substring(0, 30) || 'N/A';
     const prompt = interaction?.prompt?.substring(0, 50) || 'N/A';
@@ -160,10 +172,10 @@ export class AgentActivityMonitor {
    * Returns true if new activity was detected.
    * Use this when large changes are detected to ensure we don't miss agent activity.
    */
-  async forceCheckForAgentActivity(): Promise<boolean> {
-    const wasActive = this.isAgentActive();
+  async forceCheckForAgentActivity(workspaceFsPath?: string): Promise<boolean> {
+    const wasActive = this.isAgentActive(workspaceFsPath);
     await this.checkForAgentActivity();
-    const isNowActive = this.isAgentActive();
+    const isNowActive = this.isAgentActive(workspaceFsPath);
 
     // Return true if we detected new activity (wasn't active before, is now)
     // or if activity state changed
@@ -176,6 +188,7 @@ export class AgentActivityMonitor {
       // Get the current workspace folder URI
       const workspaceFolders = vscode.workspace.workspaceFolders;
       const workspaceFolderUri = workspaceFolders?.[0]?.uri.toString() || '';
+      const workspaceFolderFsPath = workspaceFolders?.[0]?.uri.fsPath || null;
 
       // PRIMARY: Check for new AI bubbles in global DB (this captures composer/chat)
       // This is the most reliable source for model, prompt, response, etc.
@@ -190,7 +203,7 @@ export class AgentActivityMonitor {
           console.log(`[AgentMonitor] Model: ${interaction.model}, Prompt: ${interaction.prompt?.substring(0, 50)}...`);
           console.log(`[AgentMonitor] Response: ${interaction.response?.substring(0, 100)}...`);
           console.log(`[AgentMonitor] Tokens: in=${interaction.inputTokens}, out=${interaction.outputTokens}`);
-          this.markAgentActive('composer', interaction);
+          this.markAgentActive('composer', interaction, workspaceFolderFsPath);
         }
 
         this.lastKnownBubbleTimestamp = latestBubbleTimestamp;
@@ -229,7 +242,7 @@ export class AgentActivityMonitor {
               } : null;
 
               console.log('[AgentMonitor] New Cmd+K generation detected! Age:', Math.round(ageMs / 1000), 's');
-              this.markAgentActive('cmdk', finalInteraction);
+              this.markAgentActive('cmdk', finalInteraction, workspaceFolderFsPath);
             }
 
             this.lastKnownGenerationTime = mostRecentGen.unixMs;
@@ -243,7 +256,7 @@ export class AgentActivityMonitor {
         // Get interaction data for inline diff activity
         const interaction = await getLatestAgentInteraction();
         console.log('[AgentMonitor] New inline diff detected! Count:', inlineDiffCount, 'Previous:', this.lastKnownInlineDiffCount);
-        this.markAgentActive('cmdk', interaction);
+        this.markAgentActive('cmdk', interaction, workspaceFolderFsPath);
       }
       this.lastKnownInlineDiffCount = inlineDiffCount;
 
