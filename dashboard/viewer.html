@@ -768,6 +768,166 @@
         .tab-content.active {
             display: block;
         }
+
+        /* Interaction Card Styles */
+        .interaction-card {
+            cursor: default;
+        }
+
+        .interaction-card .timeline-content {
+            cursor: pointer;
+        }
+
+        .interaction-content {
+            background: var(--bg-tertiary);
+            border: 2px solid var(--accent-purple);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .interaction-card.selected .interaction-content {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+        }
+
+        .interaction-prompt {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin: 8px 0;
+            line-height: 1.4;
+            font-style: italic;
+        }
+
+        .interaction-stats {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .model-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            background: rgba(163, 113, 247, 0.2);
+            color: var(--accent-purple);
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+
+        .token-info {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .interaction-events {
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            padding: 8px;
+            margin-top: 8px;
+        }
+
+        .events-header {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .nested-event {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 8px;
+            margin: 2px 0;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .nested-event:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .nested-event.selected {
+            background: rgba(88, 166, 255, 0.15);
+            border-left: 2px solid var(--accent-blue);
+        }
+
+        .nested-event-icon {
+            font-size: 12px;
+        }
+
+        .nested-event-file {
+            flex: 1;
+            font-size: 12px;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .nested-event-stats {
+            font-size: 11px;
+            display: flex;
+            gap: 6px;
+        }
+
+        /* Interaction Events Detail (in diff panel) */
+        .interaction-events-detail {
+            padding: 12px;
+        }
+
+        .event-detail-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .event-detail-card:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .event-detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .event-detail-stats {
+            display: flex;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .event-detail-preview {
+            font-size: 12px;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            color: var(--text-muted);
+            white-space: pre-wrap;
+            overflow: hidden;
+            max-height: 60px;
+            line-height: 1.4;
+        }
+
+        /* Standalone event styling */
+        .standalone-event .timeline-content {
+            border-left: 3px solid transparent;
+        }
+
+        .standalone-event.selected .timeline-content {
+            border-left-color: var(--accent-blue);
+        }
     </style>
 </head>
 <body>
@@ -866,9 +1026,9 @@
                         <div id="commitInfo"></div>
                     </div>
                     <div class="tabs">
-                        <button class="tab active" onclick="switchTab('diff')">Diff</button>
-                        <button class="tab" onclick="switchTab('interaction')" id="interactionTab" style="display: none;">Agent Interaction</button>
-                        <button class="tab" onclick="switchTab('diagram')" id="diagramTab" style="display: none;">Interaction Flow</button>
+                        <button class="tab active" onclick="switchTab('diff')" id="diffTab">Code Changes</button>
+                        <button class="tab" onclick="switchTab('interaction')" id="interactionTab" style="display: none;">Prompt & Response</button>
+                        <button class="tab" onclick="switchTab('diagram')" id="diagramTab" style="display: none;">Flow</button>
                     </div>
                     <div class="tab-content active" id="diffContent">
                         <div class="diff-container" id="diffViewer"></div>
@@ -1001,24 +1161,36 @@
         function loadStats() {
             const statsInfo = document.getElementById('statsInfo');
 
-            // Get counts by source
-            const humanCount = db.exec("SELECT COUNT(*) FROM diffs WHERE source = 'human'")[0]?.values[0][0] || 0;
-            const agentCount = db.exec("SELECT COUNT(*) FROM diffs WHERE source = 'agent'")[0]?.values[0][0] || 0;
-            const tabCount = db.exec("SELECT COUNT(*) FROM diffs WHERE source = 'tab-completion'")[0]?.values[0][0] || 0;
+            // Get counts by source from events table
+            const humanCount = db.exec("SELECT COUNT(*) FROM events WHERE source = 'human'")[0]?.values[0][0] || 0;
+            const agentCount = db.exec("SELECT COUNT(*) FROM events WHERE source = 'agent'")[0]?.values[0][0] || 0;
+            const tabCount = db.exec("SELECT COUNT(*) FROM events WHERE source = 'tab-completion'")[0]?.values[0][0] || 0;
             const totalCount = humanCount + agentCount + tabCount;
 
-            // Get lines stats
-            const linesResult = db.exec("SELECT SUM(lines_added), SUM(lines_removed) FROM diffs");
-            const linesAdded = linesResult[0]?.values[0][0] || 0;
-            const linesRemoved = linesResult[0]?.values[0][1] || 0;
+            // Get lines stats from metadata JSON
+            let linesAdded = 0;
+            let linesRemoved = 0;
+            const metadataResult = db.exec("SELECT metadata FROM events WHERE metadata IS NOT NULL");
+            if (metadataResult.length > 0) {
+                metadataResult[0].values.forEach(row => {
+                    try {
+                        const metadata = JSON.parse(row[0]);
+                        if (metadata.lines_added) linesAdded += metadata.lines_added;
+                        if (metadata.lines_removed) linesRemoved += metadata.lines_removed;
+                    } catch (e) {}
+                });
+            }
 
             // Get unique files
-            const filesResult = db.exec("SELECT COUNT(DISTINCT file_path) FROM diffs");
+            const filesResult = db.exec("SELECT COUNT(DISTINCT file_path) FROM events WHERE file_path IS NOT NULL");
             const uniqueFiles = filesResult[0]?.values[0][0] || 0;
+
+            // Get interaction count
+            const interactionCount = db.exec("SELECT COUNT(*) FROM interactions")[0]?.values[0][0] || 0;
 
             statsInfo.innerHTML = `
                 <div class="stat-row">
-                    <span class="stat-label">Total Changes</span>
+                    <span class="stat-label">Total Events</span>
                     <span class="stat-value">${totalCount}</span>
                 </div>
                 <div class="stat-row">
@@ -1032,6 +1204,10 @@
                 <div class="stat-row">
                     <span class="stat-label">Tab Completion</span>
                     <span class="stat-value tab">${tabCount}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Agent Interactions</span>
+                    <span class="stat-value" style="color: var(--accent-purple);">${interactionCount}</span>
                 </div>
                 <div class="stat-row">
                     <span class="stat-label">Lines Added</span>
@@ -1057,12 +1233,12 @@
                 return;
             }
 
-            // Then get diff counts per session
+            // Then get event counts per session
             const countsResult = db.exec(`
                 SELECT session_id,
-                       COUNT(*) as diff_count,
+                       COUNT(*) as event_count,
                        SUM(CASE WHEN source = 'agent' THEN 1 ELSE 0 END) as agent_count
-                FROM diffs
+                FROM events
                 GROUP BY session_id
             `);
 
@@ -1070,7 +1246,7 @@
             const countsMap = {};
             if (countsResult.length > 0) {
                 countsResult[0].values.forEach(row => {
-                    countsMap[row[0]] = { diff_count: row[1] || 0, agent_count: row[2] || 0 };
+                    countsMap[row[0]] = { event_count: row[1] || 0, agent_count: row[2] || 0 };
                 });
             }
 
@@ -1079,14 +1255,14 @@
 
             sessionsResult[0].values.forEach((row, index) => {
                 const sessionId = row[0];
-                const counts = countsMap[sessionId] || { diff_count: 0, agent_count: 0 };
+                const counts = countsMap[sessionId] || { event_count: 0, agent_count: 0 };
 
                 const session = {
                     id: sessionId,
                     project_id: row[1],
                     started_at: row[2],
                     ended_at: row[3],
-                    diff_count: counts.diff_count,
+                    event_count: counts.event_count,
                     agent_count: counts.agent_count
                 };
 
@@ -1097,7 +1273,7 @@
                 item.onclick = function() { selectSession(session.id, this); };
                 item.innerHTML = `
                     <div class="session-date">${date.toLocaleDateString()} ${date.toLocaleTimeString()}</div>
-                    <div class="session-stats">${session.diff_count} changes, ${session.agent_count} agent</div>
+                    <div class="session-stats">${session.event_count} events, ${session.agent_count} agent</div>
                 `;
                 sessionList.appendChild(item);
 
@@ -1124,121 +1300,367 @@
             loadDiffs(sessionId);
         }
 
+        let allInteractions = [];  // Stores grouped timeline items
+
         function loadDiffs(sessionId) {
+            // Query events LEFT JOIN interactions to get full data
+            // events: id, interaction_id, session_id, source, type, file_path, content, metadata, timestamp
+            // interactions: id, session_id, subtype, model, prompt, thinking, response, tool_usage, input_tokens, output_tokens, timestamp
             const result = db.exec(`
-                SELECT * FROM diffs
-                WHERE session_id = ?
-                ORDER BY timestamp ASC
+                SELECT
+                    e.id,
+                    e.interaction_id,
+                    e.session_id,
+                    e.source,
+                    e.type,
+                    e.file_path,
+                    e.content,
+                    e.metadata,
+                    e.timestamp,
+                    i.subtype as agent_subtype,
+                    i.model as agent_model,
+                    i.prompt as agent_prompt,
+                    i.response as agent_response,
+                    i.thinking as agent_thinking,
+                    i.tool_usage as agent_tool_usage,
+                    i.input_tokens as agent_input_tokens,
+                    i.output_tokens as agent_output_tokens
+                FROM events e
+                LEFT JOIN interactions i ON e.interaction_id = i.id
+                WHERE e.session_id = ?
+                ORDER BY e.timestamp ASC
             `, [sessionId]);
 
-            if (result.length === 0) {
+            if (result.length === 0 || result[0].values.length === 0) {
                 allDiffs = [];
-                document.getElementById('timeline').innerHTML = '<div class="empty-state"><p>No changes in this session</p></div>';
+                allInteractions = [];
+                document.getElementById('timeline').innerHTML = '<div class="empty-state"><p>No events in this session</p></div>';
                 return;
             }
 
-            // Column order from schema:
-            // 0:id, 1:session_id, 2:source, 3:file_path, 4:diff, 5:lines_added,
-            // 6:lines_removed, 7:commit_id, 8:timestamp, 9:agent_subtype,
-            // 10:agent_model, 11:agent_prompt, 12:agent_response, 13:agent_thinking,
-            // 14:agent_tool_usage, 15:agent_input_tokens, 16:agent_output_tokens
-            allDiffs = result[0].values.map(row => ({
-                id: row[0],
-                session_id: row[1],
-                source: row[2],
-                file_path: row[3],
-                diff: row[4] || '',
-                lines_added: row[5] || 0,
-                lines_removed: row[6] || 0,
-                commit_id: row[7],
-                timestamp: row[8],
-                agent_subtype: row[9],
-                agent_model: row[10],
-                agent_prompt: row[11],
-                agent_response: row[12],
-                agent_thinking: row[13],
-                agent_tool_usage: row[14],
-                agent_input_tokens: row[15] || 0,
-                agent_output_tokens: row[16] || 0
-            }));
+            // Map results to event objects
+            allDiffs = result[0].values.map(row => {
+                // Parse metadata JSON to get lines_added, lines_removed, commit_id
+                let metadata = {};
+                try {
+                    if (row[7]) metadata = JSON.parse(row[7]);
+                } catch (e) {}
 
-            renderTimeline(allDiffs);
+                return {
+                    id: row[0],
+                    interaction_id: row[1],
+                    session_id: row[2],
+                    source: row[3],
+                    type: row[4],
+                    file_path: row[5] || '',
+                    diff: row[6] || '',  // content is the diff
+                    lines_added: metadata.lines_added || 0,
+                    lines_removed: metadata.lines_removed || 0,
+                    commit_id: metadata.commit_id || null,
+                    timestamp: row[8],
+                    agent_subtype: row[9],
+                    agent_model: row[10],
+                    agent_prompt: row[11],
+                    agent_response: row[12],
+                    agent_thinking: row[13],
+                    agent_tool_usage: row[14],
+                    agent_input_tokens: row[15] || 0,
+                    agent_output_tokens: row[16] || 0
+                };
+            });
+
+            // Group events: interactions with their child events, and standalone events
+            allInteractions = groupEventsForTimeline(allDiffs);
+            renderTimeline(allInteractions);
+        }
+
+        function groupEventsForTimeline(events) {
+            const items = [];
+            const interactionMap = new Map();  // interaction_id -> { interaction data, events: [] }
+
+            events.forEach(event => {
+                if (event.interaction_id && event.source === 'agent') {
+                    // Group under interaction
+                    if (!interactionMap.has(event.interaction_id)) {
+                        interactionMap.set(event.interaction_id, {
+                            type: 'interaction',
+                            id: `interaction-${event.interaction_id}`,
+                            interaction_id: event.interaction_id,
+                            timestamp: event.timestamp,
+                            agent_subtype: event.agent_subtype,
+                            agent_model: event.agent_model,
+                            agent_prompt: event.agent_prompt,
+                            agent_response: event.agent_response,
+                            agent_thinking: event.agent_thinking,
+                            agent_tool_usage: event.agent_tool_usage,
+                            agent_input_tokens: event.agent_input_tokens,
+                            agent_output_tokens: event.agent_output_tokens,
+                            events: []
+                        });
+                    }
+                    interactionMap.get(event.interaction_id).events.push(event);
+                } else {
+                    // Standalone event (human or tab-completion)
+                    items.push({
+                        type: 'standalone',
+                        ...event
+                    });
+                }
+            });
+
+            // Add interactions to items at their first event's position
+            interactionMap.forEach(interaction => {
+                items.push(interaction);
+            });
+
+            // Sort all items by timestamp
+            items.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+            return items;
         }
 
         function filterTimeline() {
             const filter = document.getElementById('sourceFilter').value;
-            const filtered = filter === 'all' ? allDiffs : allDiffs.filter(d => d.source === filter);
-            renderTimeline(filtered);
+            if (filter === 'all') {
+                renderTimeline(allInteractions);
+            } else if (filter === 'agent') {
+                renderTimeline(allInteractions.filter(item => item.type === 'interaction'));
+            } else {
+                renderTimeline(allInteractions.filter(item => item.type === 'standalone' && item.source === filter));
+            }
         }
 
-        function renderTimeline(diffs) {
+        function renderTimeline(items) {
             const timeline = document.getElementById('timeline');
             timeline.innerHTML = '';
 
-            diffs.forEach(diff => {
-                const time = new Date(diff.timestamp);
-                const fileName = diff.file_path.split('/').pop();
-                const item = document.createElement('div');
-                item.className = `timeline-item${selectedDiffId === diff.id ? ' selected' : ''}`;
-                item.onclick = () => selectDiff(diff);
-
-                const sourceLabel = diff.source === 'agent' && diff.agent_subtype
-                    ? `Agent (${diff.agent_subtype})`
-                    : diff.source.charAt(0).toUpperCase() + diff.source.slice(1).replace('-', ' ');
-
-                item.innerHTML = `
-                    <div class="timeline-dot ${diff.source}"></div>
-                    <div class="timeline-content">
-                        <div class="timeline-header">
-                            <span class="timeline-source ${diff.source}">${sourceLabel}</span>
-                            <span class="timeline-time">${time.toLocaleTimeString()}</span>
-                        </div>
-                        <div class="timeline-file" title="${diff.file_path}">${fileName}</div>
-                        <div class="timeline-meta">
-                            <span style="color: var(--accent-green);">+${diff.lines_added}</span>
-                            <span style="color: var(--accent-red);">-${diff.lines_removed}</span>
-                            ${diff.agent_model ? `<span style="color: var(--accent-purple);">${diff.agent_model}</span>` : ''}
-                        </div>
-                    </div>
-                `;
-                timeline.appendChild(item);
+            items.forEach(item => {
+                if (item.type === 'interaction') {
+                    // Render interaction card with nested events
+                    renderInteractionCard(timeline, item);
+                } else {
+                    // Render standalone event
+                    renderStandaloneEvent(timeline, item);
+                }
             });
         }
 
-        function selectDiff(diff) {
-            selectedDiffId = diff.id;
+        function renderInteractionCard(timeline, interaction) {
+            const time = new Date(interaction.timestamp);
+            const card = document.createElement('div');
+            card.className = 'timeline-item interaction-card';
+            card.dataset.interactionId = interaction.interaction_id;
+
+            const promptPreview = interaction.agent_prompt
+                ? (interaction.agent_prompt.length > 100 ? interaction.agent_prompt.substring(0, 100) + '...' : interaction.agent_prompt)
+                : 'No prompt';
+
+            const totalLinesAdded = interaction.events.reduce((sum, e) => sum + (e.lines_added || 0), 0);
+            const totalLinesRemoved = interaction.events.reduce((sum, e) => sum + (e.lines_removed || 0), 0);
+
+            card.innerHTML = `
+                <div class="timeline-dot agent"></div>
+                <div class="timeline-content interaction-content">
+                    <div class="timeline-header">
+                        <span class="timeline-source agent">
+                            Agent${interaction.agent_subtype ? ` (${interaction.agent_subtype})` : ''}
+                        </span>
+                        <span class="timeline-time">${time.toLocaleTimeString()}</span>
+                    </div>
+                    <div class="interaction-prompt">${escapeHtml(promptPreview)}</div>
+                    <div class="interaction-stats">
+                        ${interaction.agent_model ? `<span class="model-tag">${interaction.agent_model}</span>` : ''}
+                        <span class="token-info">${(interaction.agent_input_tokens || 0).toLocaleString()} in → ${(interaction.agent_output_tokens || 0).toLocaleString()} out</span>
+                    </div>
+                    <div class="interaction-events">
+                        <div class="events-header">${interaction.events.length} event${interaction.events.length !== 1 ? 's' : ''} · <span style="color: var(--accent-green);">+${totalLinesAdded}</span> <span style="color: var(--accent-red);">-${totalLinesRemoved}</span></div>
+                        ${interaction.events.map(event => renderNestedEvent(event)).join('')}
+                    </div>
+                </div>
+            `;
+
+            // Click on the card header shows interaction details
+            card.querySelector('.interaction-content').onclick = (e) => {
+                if (!e.target.closest('.nested-event')) {
+                    selectInteraction(interaction);
+                }
+            };
+
+            // Click on nested events shows that specific event
+            card.querySelectorAll('.nested-event').forEach((el, idx) => {
+                el.onclick = (e) => {
+                    e.stopPropagation();
+                    selectEvent(interaction.events[idx], interaction);
+                };
+            });
+
+            timeline.appendChild(card);
+        }
+
+        function renderNestedEvent(event) {
+            const fileName = event.file_path ? event.file_path.split('/').pop() : '(no file)';
+            const typeIcons = { 'diff': '📝', 'file_create': '📄', 'file_delete': '🗑️', 'terminal': '💻' };
+            const icon = typeIcons[event.type] || '📝';
+
+            return `
+                <div class="nested-event" data-event-id="${event.id}">
+                    <span class="nested-event-icon">${icon}</span>
+                    <span class="nested-event-file" title="${event.file_path || ''}">${fileName}</span>
+                    <span class="nested-event-stats">
+                        <span style="color: var(--accent-green);">+${event.lines_added || 0}</span>
+                        <span style="color: var(--accent-red);">-${event.lines_removed || 0}</span>
+                    </span>
+                </div>
+            `;
+        }
+
+        function renderStandaloneEvent(timeline, event) {
+            const time = new Date(event.timestamp);
+            const fileName = event.file_path ? event.file_path.split('/').pop() : '(no file)';
+            const item = document.createElement('div');
+            item.className = `timeline-item standalone-event${selectedDiffId === event.id ? ' selected' : ''}`;
+            item.onclick = () => selectEvent(event, null);
+
+            const sourceLabel = event.source.charAt(0).toUpperCase() + event.source.slice(1).replace('-', ' ');
+
+            const typeLabels = { 'diff': '', 'file_create': '📄 New', 'file_delete': '🗑️ Delete', 'terminal': '💻 Terminal' };
+            const typeLabel = typeLabels[event.type] || '';
+
+            item.innerHTML = `
+                <div class="timeline-dot ${event.source}"></div>
+                <div class="timeline-content">
+                    <div class="timeline-header">
+                        <span class="timeline-source ${event.source}">${sourceLabel}</span>
+                        <span class="timeline-time">${typeLabel ? typeLabel + ' · ' : ''}${time.toLocaleTimeString()}</span>
+                    </div>
+                    <div class="timeline-file" title="${event.file_path || ''}">${fileName}</div>
+                    <div class="timeline-meta">
+                        ${event.type === 'terminal' ? '' : `
+                            <span style="color: var(--accent-green);">+${event.lines_added}</span>
+                            <span style="color: var(--accent-red);">-${event.lines_removed}</span>
+                        `}
+                    </div>
+                </div>
+            `;
+            timeline.appendChild(item);
+        }
+
+        let selectedInteraction = null;
+        let selectedEventData = null;
+
+        // Called when clicking on an interaction card (not a nested event)
+        function selectInteraction(interaction) {
+            selectedInteraction = interaction;
+            selectedEventData = null;
+            selectedDiffId = null;
 
             // Update timeline selection
             document.querySelectorAll('.timeline-item').forEach(el => el.classList.remove('selected'));
-            event?.target?.closest('.timeline-item')?.classList.add('selected');
+            document.querySelector(`.interaction-card[data-interaction-id="${interaction.interaction_id}"]`)?.classList.add('selected');
 
             // Show detail panel
             document.getElementById('detailPanel').style.display = 'block';
-            document.getElementById('detailFileName').textContent = diff.file_path;
+            document.getElementById('detailFileName').textContent = 'Agent Interaction';
 
-            // Show/hide tabs based on source
+            // Show all tabs for interactions
+            document.getElementById('interactionTab').style.display = 'block';
+            document.getElementById('diagramTab').style.display = 'block';
+
+            // Render interaction details (show all events in the diff tab)
+            renderInteractionDetails(interaction);
+            renderInteractionPanel(interaction);
+            renderDiagram(interaction);
+
+            // Default to interaction tab
+            switchTab('interaction');
+        }
+
+        // Called when clicking on a specific event (nested or standalone)
+        function selectEvent(event, parentInteraction) {
+            selectedEventData = event;
+            selectedInteraction = parentInteraction;
+            selectedDiffId = event.id;
+
+            // Update timeline selection
+            document.querySelectorAll('.timeline-item').forEach(el => el.classList.remove('selected'));
+            document.querySelectorAll('.nested-event').forEach(el => el.classList.remove('selected'));
+
+            if (parentInteraction) {
+                document.querySelector(`.interaction-card[data-interaction-id="${parentInteraction.interaction_id}"]`)?.classList.add('selected');
+                document.querySelector(`.nested-event[data-event-id="${event.id}"]`)?.classList.add('selected');
+            } else {
+                event?.target?.closest?.('.timeline-item')?.classList.add('selected');
+            }
+
+            // Show detail panel
+            document.getElementById('detailPanel').style.display = 'block';
+
+            const typeNames = { 'diff': 'Code Change', 'file_create': 'New File', 'file_delete': 'Deleted File', 'terminal': 'Terminal' };
+            document.getElementById('detailFileName').textContent = event.file_path || typeNames[event.type] || 'Event';
+
+            // Show/hide tabs based on whether there's a parent interaction
             const interactionTab = document.getElementById('interactionTab');
             const diagramTab = document.getElementById('diagramTab');
-            if (diff.source === 'agent') {
+            if (parentInteraction) {
                 interactionTab.style.display = 'block';
                 diagramTab.style.display = 'block';
             } else {
                 interactionTab.style.display = 'none';
                 diagramTab.style.display = 'none';
-                switchTab('diff');
             }
 
             // Render commit info
-            renderCommitInfo(diff);
+            renderCommitInfo(event);
 
-            // Render diff
-            renderDiff(diff);
+            // Render diff (or terminal output)
+            renderDiff(event);
 
-            // Render interaction panel if agent
-            if (diff.source === 'agent') {
-                renderInteractionPanel(diff);
-                renderDiagram(diff);
+            // Render interaction panel if there's a parent interaction
+            if (parentInteraction) {
+                renderInteractionPanel(parentInteraction);
+                renderDiagram(parentInteraction);
             }
+
+            switchTab('diff');
+        }
+
+        // Render all events from an interaction in the diff panel
+        function renderInteractionDetails(interaction) {
+            const viewer = document.getElementById('diffViewer');
+
+            if (interaction.events.length === 0) {
+                viewer.innerHTML = '<div style="padding: 20px; color: var(--text-muted);">No code changes in this interaction</div>';
+                return;
+            }
+
+            let html = `<div class="interaction-events-detail">`;
+
+            interaction.events.forEach((event, idx) => {
+                const fileName = event.file_path ? event.file_path.split('/').pop() : '(no file)';
+                const typeIcons = { 'diff': '📝', 'file_create': '📄', 'file_delete': '🗑️', 'terminal': '💻' };
+                const icon = typeIcons[event.type] || '📝';
+
+                html += `
+                    <div class="event-detail-card" onclick="selectEvent(allDiffs.find(d => d.id === ${event.id}), selectedInteraction)">
+                        <div class="event-detail-header">
+                            <span>${icon} ${escapeHtml(fileName)}</span>
+                            <span class="event-detail-stats">
+                                <span style="color: var(--accent-green);">+${event.lines_added || 0}</span>
+                                <span style="color: var(--accent-red);">-${event.lines_removed || 0}</span>
+                            </span>
+                        </div>
+                        <div class="event-detail-preview">${escapeHtml((event.diff || '').substring(0, 200))}${event.diff && event.diff.length > 200 ? '...' : ''}</div>
+                    </div>
+                `;
+            });
+
+            html += `</div>`;
+            viewer.innerHTML = html;
+        }
+
+        // Legacy function for backwards compatibility
+        function selectDiff(diff) {
+            selectEvent(diff, null);
         }
 
         function renderCommitInfo(diff) {
@@ -1283,13 +1705,25 @@
             const viewer = document.getElementById('diffViewer');
             const diffText = diff.diff || '';
             const lines = diffText.split('\n');
-            const totalChanges = (diff.lines_added || 0) + (diff.lines_removed || 0);
             const isLarge = lines.length > 20;
             const diffId = `diff-${diff.id}`;
 
+            // Handle terminal events differently
+            if (diff.type === 'terminal') {
+                viewer.innerHTML = `
+                    <div class="diff-file-header">
+                        <span class="diff-file-path">Terminal Output</span>
+                    </div>
+                    <div class="diff-body" style="padding: 12px; font-family: 'SF Mono', Monaco, Consolas, monospace; font-size: 13px; white-space: pre-wrap; background: var(--bg-tertiary);">
+                        ${escapeHtml(diffText) || '<span style="color: var(--text-muted);">(No output)</span>'}
+                    </div>
+                `;
+                return;
+            }
+
             let html = `
                 <div class="diff-file-header">
-                    <span class="diff-file-path">${escapeHtml(diff.file_path)}</span>
+                    <span class="diff-file-path">${escapeHtml(diff.file_path || '')}</span>
                     <div class="diff-stats">
                         <span class="additions">+${diff.lines_added || 0}</span>
                         <span class="deletions">-${diff.lines_removed || 0}</span>
@@ -1504,14 +1938,25 @@
             `;
         }
 
-        function renderDiagram(diff) {
+        function renderDiagram(interaction) {
             const viewer = document.getElementById('diagramViewer');
 
-            const promptPreview = diff.agent_prompt
-                ? (diff.agent_prompt.length > 50 ? diff.agent_prompt.substring(0, 50) + '...' : diff.agent_prompt)
+            const promptPreview = interaction.agent_prompt
+                ? (interaction.agent_prompt.length > 50 ? interaction.agent_prompt.substring(0, 50) + '...' : interaction.agent_prompt)
                 : 'No prompt';
 
-            const fileName = diff.file_path.split('/').pop();
+            // Handle both interaction objects (with events array) and legacy diff objects
+            const events = interaction.events || [interaction];
+            const totalLinesAdded = events.reduce((sum, e) => sum + (e.lines_added || 0), 0);
+            const totalLinesRemoved = events.reduce((sum, e) => sum + (e.lines_removed || 0), 0);
+
+            const filesChanged = events
+                .filter(e => e.file_path)
+                .map(e => e.file_path.split('/').pop())
+                .slice(0, 3);
+            const filesDisplay = filesChanged.length > 0
+                ? (filesChanged.join(', ') + (events.length > 3 ? ` +${events.length - 3} more` : ''))
+                : 'No files';
 
             viewer.innerHTML = `
                 <div class="interaction-flow">
@@ -1521,18 +1966,18 @@
                     </div>
                     <div class="flow-arrow">→</div>
                     <div class="flow-node agent">
-                        <div class="flow-node-label">Agent (${diff.agent_model || 'Unknown'})</div>
+                        <div class="flow-node-label">Agent (${interaction.agent_model || 'Unknown'})</div>
                         <div class="flow-node-content">
-                            ${diff.agent_input_tokens?.toLocaleString() || 0} in → ${diff.agent_output_tokens?.toLocaleString() || 0} out
+                            ${(interaction.agent_input_tokens || 0).toLocaleString()} in → ${(interaction.agent_output_tokens || 0).toLocaleString()} out
                         </div>
                     </div>
                     <div class="flow-arrow">→</div>
                     <div class="flow-node code">
-                        <div class="flow-node-label">Code Change</div>
+                        <div class="flow-node-label">${events.length} Event${events.length !== 1 ? 's' : ''}</div>
                         <div class="flow-node-content">
-                            ${fileName}<br>
-                            <span style="color: var(--accent-green);">+${diff.lines_added}</span>
-                            <span style="color: var(--accent-red);">-${diff.lines_removed}</span>
+                            ${filesDisplay}<br>
+                            <span style="color: var(--accent-green);">+${totalLinesAdded}</span>
+                            <span style="color: var(--accent-red);">-${totalLinesRemoved}</span>
                         </div>
                     </div>
                 </div>

@@ -1,14 +1,13 @@
 ### TODO's:
 
+- [ ] human/agent/tab-completion types is not super accurate, as well as agent sub types (composer, cmdk) (PRIORITY)
 - [ ] collect human terminal commands as well, input <> output
-- [ ] handle overlapping uploads, if you contribute something once, and upload again how to handle
 - [ ] track committing and pushing as an event
-- [ ] extra fields to define step i to j is atempting a task
+- [ ] extra fields to define step i to j is atempting a task (this could happen locally or also on admin dashboard, or authenticated user)
 - [ ] save into a single postgres on confirmation, that has a status there of uploads, user with only writing permissions
 - [ ] Then use that to read from the dashboard.
 
 
-- [ ] human/agent/tab-completion types is not super accurate, as well as agent sub types (composer, cmdk)
 - [ ] collect confirmed code approvals and discarded more accurately
 - [ ] collect agent thinking traces, tool calls as well
 - [ ] ask for committing current changes to start collection to avoid stale entry points for the initial environment

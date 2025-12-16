@@ -59,3 +59,29 @@ export async function getGitCommitId(workspacePath: string): Promise<string | nu
     return null;
   }
 }
+
+export async function getGitUsername(): Promise<string | null> {
+  try {
+    // Try github.user config first
+    const { stdout: githubUser } = await execAsync('git config github.user');
+    if (githubUser.trim()) {
+      return githubUser.trim();
+    }
+  } catch {
+    // Not set
+  }
+
+  try {
+    // Fall back to extracting from email (before @)
+    const { stdout: email } = await execAsync('git config user.email');
+    if (email.trim()) {
+      const username = email.trim().split('@')[0];
+      // Sanitize: only keep alphanumeric, underscore, hyphen
+      return username.replace(/[^a-zA-Z0-9_-]/g, '-');
+    }
+  } catch {
+    // Not set
+  }
+
+  return null;
+}

@@ -124,6 +124,19 @@ export class DatabaseConnection {
   getWorkspacePath(): string | null {
     return this.workspacePath;
   }
+
+  resetDatabase(): void {
+    if (!this.db) {
+      return;
+    }
+    // Clear all data but keep schema
+    this.db.run('DELETE FROM events');
+    this.db.run('DELETE FROM interactions');
+    this.db.run('DELETE FROM sessions');
+    this.db.run('DELETE FROM projects');
+    this.saveToDisk();
+    console.log('[Database] Database reset - all data cleared');
+  }
 }
 
 export const dbConnection = DatabaseConnection.getInstance();

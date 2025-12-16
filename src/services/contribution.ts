@@ -4,6 +4,7 @@ import * as path from 'path';
 import { Storage } from '@google-cloud/storage';
 import { dbConnection } from '../database/connection';
 import { GCP_CREDENTIALS, GCP_BUCKET_NAME } from './gcp-credentials';
+import { getGitUsername } from '../utils/git';
 
 // GitHub repo for creating contribution issues
 const GITHUB_REPO = 'josancamon19/co-create';
@@ -203,10 +204,7 @@ export class ContributionService {
         },
       });
 
-      // Make the file publicly readable so the dashboard can access it
-      const file = bucket.file(destinationPath);
-      await file.makePublic();
-
+      // Files are publicly readable via bucket-level permissions (allUsers: objectViewer)
       return `gs://${GCP_BUCKET_NAME}/${destinationPath}`;
     } catch (error) {
       console.error('[Contribution] GCP upload failed:', error);
@@ -278,10 +276,14 @@ ${stats.fileExtensions.length > 0 ? stats.fileExtensions.join(', ') : 'N/A'}`;
       return;
     }
 
+    // Get default username from git config
+    const defaultUsername = await getGitUsername();
+
     // Prompt for username
     const username = await vscode.window.showInputBox({
       prompt: 'Enter your username or identifier for this contribution',
       placeHolder: 'e.g., johndoe or github-username',
+      value: defaultUsername || undefined,
       validateInput: (value) => {
         if (!value || value.trim().length === 0) {
           return 'Username is required';
@@ -309,15 +311,17 @@ ${stats.fileExtensions.length > 0 ? stats.fileExtensions.join(', ') : 'N/A'}`;
 • ${stats.totalSessions} sessions
 • ${stats.totalLinesAdded} lines added, ${stats.totalLinesRemoved} removed
 
+⚠️ Your local collection history will be cleared after upload.
+
 Continue?`;
 
     const confirm = await vscode.window.showInformationMessage(
       confirmMessage,
       { modal: true },
-      'Upload & Create Issue'
+      'Upload & Clear History'
     );
 
-    if (confirm !== 'Upload & Create Issue') {
+    if (confirm !== 'Upload & Clear History') {
       return;
     }
 
@@ -336,8 +340,11 @@ Continue?`;
             // Open GitHub issue
             this.openGitHubIssue(stats, gcpUrl, cleanUsername);
 
+            // Clear the database after successful upload
+            dbConnection.resetDatabase();
+
             vscode.window.showInformationMessage(
-              'Data uploaded successfully! Complete the GitHub issue to finish your contribution.'
+              'Data uploaded and history cleared! Complete the GitHub issue to finish your contribution.'
             );
           }
         }
