@@ -173,6 +173,10 @@ export class ContributionService {
         },
       });
 
+      // Make the file publicly readable so the dashboard can access it
+      const file = bucket.file(destinationPath);
+      await file.makePublic();
+
       return `gs://${GCP_BUCKET_NAME}/${destinationPath}`;
     } catch (error) {
       console.error('[Contribution] GCP upload failed:', error);
@@ -183,14 +187,19 @@ export class ContributionService {
   formatStatsForIssue(stats: ContributionStats, gcpUrl: string, username: string): string {
     // Convert gs:// URL to public https:// URL
     const publicUrl = gcpUrl.replace('gs://', 'https://storage.googleapis.com/');
+    const dashboardUrl = `https://josancamon19.github.io/co-create/dashboard/viewer.html?db=${encodeURIComponent(publicUrl)}`;
 
     const projectsList = stats.projectUrls.length > 0
       ? stats.projectUrls.join('\n')
       : 'No git repositories';
 
-    return `Download: ${publicUrl}
+    return `## View Traces
+[Open in Trace Viewer](${dashboardUrl})
 
-Statistics:
+## Download
+${publicUrl}
+
+## Statistics
 - Total Diffs: ${stats.totalDiffs}
 - Human Edits: ${stats.humanDiffs}
 - Agent Edits: ${stats.agentDiffs}
@@ -199,12 +208,14 @@ Statistics:
 - Lines Added: ${stats.totalLinesAdded}
 - Lines Removed: ${stats.totalLinesRemoved}
 
-Date Range: ${stats.dateRange.earliest || 'N/A'} to ${stats.dateRange.latest || 'N/A'}
+## Date Range
+${stats.dateRange.earliest || 'N/A'} to ${stats.dateRange.latest || 'N/A'}
 
-Projects:
+## Projects
 ${projectsList}
 
-File Types: ${stats.fileExtensions.length > 0 ? stats.fileExtensions.join(', ') : 'N/A'}`;
+## File Types
+${stats.fileExtensions.length > 0 ? stats.fileExtensions.join(', ') : 'N/A'}`;
   }
 
   openGitHubIssue(stats: ContributionStats, gcpUrl: string, username: string): void {

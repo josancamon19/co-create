@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contributions - Co-Create Dataset</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-purple: #a371f7;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        header {
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 18px;
+            font-weight: 600;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .logo svg {
+            width: 24px;
+            height: 24px;
+            color: var(--accent-blue);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }
+
+        .page-subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 32px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 40px;
+        }
+
+        .stat-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+        }
+
+        .stat-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .contributions-list {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .list-header {
+            padding: 12px 16px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            font-size: 14px;
+            display: grid;
+            grid-template-columns: 1fr 180px 120px;
+            gap: 16px;
+        }
+
+        .contribution-item {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+            display: grid;
+            grid-template-columns: 1fr 180px 120px;
+            gap: 16px;
+            align-items: center;
+            transition: background 0.2s;
+        }
+
+        .contribution-item:last-child {
+            border-bottom: none;
+        }
+
+        .contribution-item:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .contributor-name {
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .contributor-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--bg-tertiary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: var(--accent-purple);
+        }
+
+        .contribution-date {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .contribution-size {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: var(--accent-blue);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #4090e0;
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 12px;
+        }
+
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-msg {
+            background: rgba(248, 81, 73, 0.1);
+            border: 1px solid rgba(248, 81, 73, 0.3);
+            color: #f85149;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        @media (max-width: 768px) {
+            .list-header,
+            .contribution-item {
+                grid-template-columns: 1fr;
+                gap: 8px;
+            }
+
+            .list-header {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="index.html" class="logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            Co-Create
+        </a>
+    </header>
+
+    <div class="container">
+        <h1>Contributions</h1>
+        <p class="page-subtitle">All contributed datasets from the community</p>
+
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+                <div class="stat-value" id="totalContributions">-</div>
+                <div class="stat-label">Total Contributions</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="uniqueContributors">-</div>
+                <div class="stat-label">Unique Contributors</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalSize">-</div>
+                <div class="stat-label">Total Data Size</div>
+            </div>
+        </div>
+
+        <div class="contributions-list">
+            <div class="list-header">
+                <span>Contributor</span>
+                <span>Date</span>
+                <span>Actions</span>
+            </div>
+            <div id="contributionsList">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <span>Loading contributions...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BUCKET_NAME = 'co-create-dataset';
+        const BUCKET_URL = `https://storage.googleapis.com/${BUCKET_NAME}`;
+
+        async function fetchWithProxy(url) {
+            try {
+                // Try direct fetch first
+                const response = await fetch(url);
+                if (response.ok) {
+                    return await response.text();
+                }
+                throw new Error(`Direct fetch failed: ${response.status}`);
+            } catch (directError) {
+                // If direct fetch fails (CORS), try proxy
+                console.log('Direct fetch failed, trying proxy...', directError.message);
+                const proxyUrl = `/proxy?url=${encodeURIComponent(url)}`;
+                const proxyResponse = await fetch(proxyUrl);
+                if (!proxyResponse.ok) {
+                    throw new Error(`Proxy fetch failed: ${proxyResponse.status}`);
+                }
+                return await proxyResponse.text();
+            }
+        }
+
+        async function loadContributions() {
+            const listContainer = document.getElementById('contributionsList');
+
+            try {
+                // Fetch all files in the contributions folder using GCS XML API
+                const listUrl = `${BUCKET_URL}?prefix=contributions/`;
+                const allFilesText = await fetchWithProxy(listUrl);
+
+                const parser = new DOMParser();
+                const allFilesXml = parser.parseFromString(allFilesText, 'text/xml');
+
+                // Check for errors in XML
+                const errorNode = allFilesXml.querySelector('Error');
+                if (errorNode) {
+                    const errorMsg = errorNode.querySelector('Message')?.textContent || 'Unknown error';
+                    throw new Error(`GCP Error: ${errorMsg}`);
+                }
+
+                const contents = allFilesXml.querySelectorAll('Contents');
+                const allContributions = [];
+                let totalSize = 0;
+
+                contents.forEach(content => {
+                    const key = content.querySelector('Key')?.textContent || '';
+                    const size = parseInt(content.querySelector('Size')?.textContent || '0');
+                    const lastModified = content.querySelector('LastModified')?.textContent || '';
+
+                    // Parse: contributions/username/timestamp.db
+                    const match = key.match(/contributions\/([^\/]+)\/(.+\.db)$/);
+                    if (match) {
+                        const [, username, filename] = match;
+                        allContributions.push({
+                            username,
+                            filename,
+                            key,
+                            size,
+                            lastModified: new Date(lastModified),
+                            url: `${BUCKET_URL}/${key}`
+                        });
+                        totalSize += size;
+                    }
+                });
+
+                // Sort by date descending
+                allContributions.sort((a, b) => b.lastModified - a.lastModified);
+
+                // Update stats
+                const uniqueContributors = new Set(allContributions.map(c => c.username)).size;
+                document.getElementById('totalContributions').textContent = allContributions.length;
+                document.getElementById('uniqueContributors').textContent = uniqueContributors;
+                document.getElementById('totalSize').textContent = formatSize(totalSize);
+
+                // Render list
+                if (allContributions.length === 0) {
+                    listContainer.innerHTML = `
+                        <div class="empty-state">
+                            <p>No contributions yet. Be the first to contribute!</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                listContainer.innerHTML = allContributions.map(contribution => `
+                    <div class="contribution-item">
+                        <div class="contributor-name">
+                            <div class="contributor-avatar">${contribution.username.charAt(0).toUpperCase()}</div>
+                            <span>${escapeHtml(contribution.username)}</span>
+                        </div>
+                        <div class="contribution-date">
+                            ${formatDate(contribution.lastModified)}
+                        </div>
+                        <div>
+                            <a href="viewer.html?db=${encodeURIComponent(contribution.url)}" class="btn btn-sm">
+                                View Traces
+                            </a>
+                        </div>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error('Error loading contributions:', error);
+                listContainer.innerHTML = `
+                    <div class="error-msg">
+                        Failed to load contributions. The bucket may not be publicly accessible.<br>
+                        <small>${escapeHtml(error.message)}</small>
+                    </div>
+                `;
+            }
+        }
+
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function formatDate(date) {
+            return date.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Load on page load
+        loadContributions();
+    </script>
+</body>
+</html>

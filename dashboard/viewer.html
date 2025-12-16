@@ -1,0 +1,1582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trace Viewer - Co-Create</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-red: #f85149;
+            --accent-purple: #a371f7;
+            --accent-orange: #d29922;
+            --accent-cyan: #39c5cf;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .logo svg {
+            width: 28px;
+            height: 28px;
+            color: var(--accent-blue);
+        }
+
+        .url-input-container {
+            display: flex;
+            gap: 8px;
+            flex: 1;
+            max-width: 600px;
+            margin: 0 20px;
+        }
+
+        .url-input {
+            flex: 1;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .url-input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
+        }
+
+        .btn {
+            padding: 8px 16px;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn:hover {
+            background: #4090e0;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border-color);
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            padding: 20px;
+            min-height: calc(100vh - 65px);
+        }
+
+        .sidebar {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            height: fit-content;
+            position: sticky;
+            top: 85px;
+            max-height: calc(100vh - 105px);
+            overflow-y: auto;
+        }
+
+        .sidebar-section {
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .sidebar-section:last-child {
+            border-bottom: none;
+        }
+
+        .sidebar-header {
+            padding: 12px 16px;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            background: var(--bg-tertiary);
+        }
+
+        .project-info {
+            padding: 16px;
+        }
+
+        .project-name {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .project-name a {
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        .project-name a:hover {
+            text-decoration: underline;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 13px;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+        }
+
+        .stat-value {
+            font-weight: 500;
+        }
+
+        .stat-value.human { color: var(--accent-cyan); }
+        .stat-value.agent { color: var(--accent-purple); }
+        .stat-value.tab { color: var(--accent-orange); }
+
+        .session-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .session-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-color);
+            transition: background 0.2s;
+        }
+
+        .session-item:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .session-item.active {
+            background: var(--bg-tertiary);
+            border-left: 3px solid var(--accent-blue);
+        }
+
+        .session-item:last-child {
+            border-bottom: none;
+        }
+
+        .session-date {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .session-stats {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .main-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 12px 16px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-title {
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-content {
+            padding: 16px;
+        }
+
+        /* Timeline */
+        .timeline {
+            position: relative;
+            padding: 20px 0;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 24px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--border-color);
+        }
+
+        .timeline-item {
+            position: relative;
+            padding-left: 60px;
+            padding-bottom: 24px;
+            cursor: pointer;
+        }
+
+        .timeline-item:last-child {
+            padding-bottom: 0;
+        }
+
+        .timeline-dot {
+            position: absolute;
+            left: 16px;
+            top: 4px;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--bg-secondary);
+            border: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .timeline-dot.human {
+            border-color: var(--accent-cyan);
+            background: rgba(57, 197, 207, 0.2);
+        }
+
+        .timeline-dot.agent {
+            border-color: var(--accent-purple);
+            background: rgba(163, 113, 247, 0.2);
+        }
+
+        .timeline-dot.tab-completion {
+            border-color: var(--accent-orange);
+            background: rgba(210, 153, 34, 0.2);
+        }
+
+        .timeline-item.selected .timeline-dot {
+            transform: scale(1.2);
+        }
+
+        .timeline-content {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 12px;
+            transition: border-color 0.2s;
+        }
+
+        .timeline-item:hover .timeline-content {
+            border-color: var(--text-muted);
+        }
+
+        .timeline-item.selected .timeline-content {
+            border-color: var(--accent-blue);
+        }
+
+        .timeline-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .timeline-source {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+
+        .timeline-source.human {
+            background: rgba(57, 197, 207, 0.2);
+            color: var(--accent-cyan);
+        }
+
+        .timeline-source.agent {
+            background: rgba(163, 113, 247, 0.2);
+            color: var(--accent-purple);
+        }
+
+        .timeline-source.tab-completion {
+            background: rgba(210, 153, 34, 0.2);
+            color: var(--accent-orange);
+        }
+
+        .timeline-time {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .timeline-file {
+            font-size: 13px;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .timeline-meta {
+            display: flex;
+            gap: 12px;
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .timeline-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Diff Viewer */
+        .diff-container {
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .diff-file-header {
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .diff-file-path {
+            color: var(--text-secondary);
+        }
+
+        .diff-stats {
+            display: flex;
+            gap: 8px;
+        }
+
+        .diff-stats span {
+            font-size: 12px;
+        }
+
+        .diff-stats .additions { color: var(--accent-green); }
+        .diff-stats .deletions { color: var(--accent-red); }
+
+        .diff-hunk-header {
+            padding: 4px 12px;
+            background: rgba(88, 166, 255, 0.1);
+            color: var(--accent-blue);
+            font-size: 12px;
+        }
+
+        .diff-line {
+            display: flex;
+            min-height: 20px;
+        }
+
+        .diff-line-number {
+            width: 50px;
+            padding: 0 8px;
+            text-align: right;
+            color: var(--text-muted);
+            background: var(--bg-tertiary);
+            user-select: none;
+            flex-shrink: 0;
+        }
+
+        .diff-line-content {
+            flex: 1;
+            padding: 0 12px;
+            white-space: pre;
+        }
+
+        .diff-line.addition {
+            background: rgba(63, 185, 80, 0.15);
+        }
+
+        .diff-line.addition .diff-line-content::before {
+            content: '+';
+            color: var(--accent-green);
+            margin-right: 4px;
+        }
+
+        .diff-line.deletion {
+            background: rgba(248, 81, 73, 0.15);
+        }
+
+        .diff-line.deletion .diff-line-content::before {
+            content: '-';
+            color: var(--accent-red);
+            margin-right: 4px;
+        }
+
+        .diff-body {
+            position: relative;
+        }
+
+        .diff-expand-gradient {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 60px;
+            background: linear-gradient(transparent, var(--bg-secondary));
+            pointer-events: none;
+        }
+
+        /* Agent Interaction Panel */
+        .interaction-panel {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .interaction-section {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .interaction-section.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .interaction-header {
+            padding: 10px 12px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .interaction-body {
+            padding: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .interaction-body pre {
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .model-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background: rgba(163, 113, 247, 0.2);
+            color: var(--accent-purple);
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .token-stats {
+            display: flex;
+            gap: 16px;
+            margin-top: 8px;
+        }
+
+        .token-stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        /* Commit Link */
+        .commit-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            font-size: 12px;
+            color: var(--accent-blue);
+            text-decoration: none;
+        }
+
+        .commit-link:hover {
+            background: var(--border-color);
+        }
+
+        /* Loading State */
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state h3 {
+            font-size: 18px;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        /* Interaction Diagram */
+        .diagram-container {
+            padding: 20px;
+            overflow-x: auto;
+        }
+
+        .interaction-flow {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            min-width: fit-content;
+        }
+
+        .flow-node {
+            background: var(--bg-tertiary);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 16px;
+            min-width: 150px;
+            text-align: center;
+        }
+
+        .flow-node.user {
+            border-color: var(--accent-cyan);
+        }
+
+        .flow-node.agent {
+            border-color: var(--accent-purple);
+        }
+
+        .flow-node.code {
+            border-color: var(--accent-green);
+        }
+
+        .flow-node-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .flow-node-content {
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        .flow-arrow {
+            display: flex;
+            align-items: center;
+            color: var(--text-muted);
+            font-size: 20px;
+        }
+
+        /* Responsive */
+        @media (max-width: 1000px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: static;
+                max-height: none;
+            }
+
+            .interaction-panel {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Tool Usage */
+        .tool-usage-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .tool-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 12px;
+        }
+
+        .tool-name {
+            font-weight: 500;
+            color: var(--accent-orange);
+            font-size: 13px;
+        }
+
+        .tool-args {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            padding: 8px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab {
+            padding: 6px 12px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            background: transparent;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab:hover {
+            color: var(--text-primary);
+            background: var(--bg-secondary);
+        }
+
+        .tab.active {
+            color: var(--text-primary);
+            background: var(--bg-secondary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="index.html" class="logo" style="text-decoration: none; color: inherit;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            Co-Create
+        </a>
+        <div class="url-input-container">
+            <input type="text" class="url-input" id="dbUrl" placeholder="Enter SQLite database URL (e.g., https://storage.googleapis.com/...)" />
+            <button class="btn" id="loadBtn" onclick="loadDatabase()">Load Database</button>
+            <input type="file" id="fileInput" accept=".db,.sqlite,.sqlite3" style="display: none" onchange="loadFromFile(event)" />
+            <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">Upload</button>
+        </div>
+        <a href="contributions.html" class="btn btn-secondary" style="text-decoration: none;">All Contributions</a>
+    </header>
+
+    <div class="main-content">
+        <aside class="sidebar" id="sidebar">
+            <div class="empty-state" id="sidebarEmpty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+                <h3>No Database Loaded</h3>
+                <p>Enter a URL or upload a file to view traces</p>
+            </div>
+            <div id="sidebarContent" style="display: none;">
+                <div class="sidebar-section">
+                    <div class="sidebar-header">Project</div>
+                    <div class="project-info" id="projectInfo"></div>
+                </div>
+                <div class="sidebar-section">
+                    <div class="sidebar-header">Statistics</div>
+                    <div class="project-info" id="statsInfo"></div>
+                </div>
+                <div class="sidebar-section">
+                    <div class="sidebar-header">Sessions</div>
+                    <div class="session-list" id="sessionList"></div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-panel" id="mainPanel">
+            <div class="empty-state" id="mainEmpty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                    <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+                <h3>Welcome to Trace Viewer</h3>
+                <p>Load a database to explore code change traces, agent interactions, and diffs</p>
+            </div>
+            <div id="mainContent" style="display: none;">
+                <!-- Timeline Panel -->
+                <div class="panel">
+                    <div class="panel-header">
+                        <span class="panel-title">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                            Interaction Timeline
+                        </span>
+                        <div style="display: flex; gap: 8px;">
+                            <select id="sourceFilter" onchange="filterTimeline()" style="padding: 4px 8px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 12px;">
+                                <option value="all">All Sources</option>
+                                <option value="human">Human Only</option>
+                                <option value="agent">Agent Only</option>
+                                <option value="tab-completion">Tab Completion Only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="panel-content" style="max-height: 400px; overflow-y: auto;">
+                        <div class="timeline" id="timeline"></div>
+                    </div>
+                </div>
+
+                <!-- Detail Panel -->
+                <div class="panel" id="detailPanel" style="display: none;">
+                    <div class="panel-header">
+                        <span class="panel-title" id="detailTitle">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                            </svg>
+                            <span id="detailFileName"></span>
+                        </span>
+                        <div id="commitInfo"></div>
+                    </div>
+                    <div class="tabs">
+                        <button class="tab active" onclick="switchTab('diff')">Diff</button>
+                        <button class="tab" onclick="switchTab('interaction')" id="interactionTab" style="display: none;">Agent Interaction</button>
+                        <button class="tab" onclick="switchTab('diagram')" id="diagramTab" style="display: none;">Interaction Flow</button>
+                    </div>
+                    <div class="tab-content active" id="diffContent">
+                        <div class="diff-container" id="diffViewer"></div>
+                    </div>
+                    <div class="tab-content" id="interactionContent">
+                        <div class="panel-content">
+                            <div class="interaction-panel" id="interactionPanel"></div>
+                        </div>
+                    </div>
+                    <div class="tab-content" id="diagramContent">
+                        <div class="diagram-container" id="diagramViewer"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let db = null;
+        let allDiffs = [];
+        let currentSessionId = null;
+        let selectedDiffId = null;
+
+        async function loadDatabase() {
+            const url = document.getElementById('dbUrl').value.trim();
+            if (!url) {
+                alert('Please enter a database URL');
+                return;
+            }
+
+            const loadBtn = document.getElementById('loadBtn');
+            loadBtn.disabled = true;
+            loadBtn.textContent = 'Loading...';
+
+            try {
+                let response;
+                try {
+                    // Try direct fetch first
+                    response = await fetch(url);
+                } catch (corsError) {
+                    // If CORS error, try using local proxy
+                    console.log('Direct fetch failed, trying proxy...');
+                    const proxyUrl = `/proxy?url=${encodeURIComponent(url)}`;
+                    response = await fetch(proxyUrl);
+                }
+
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+                }
+                const arrayBuffer = await response.arrayBuffer();
+                await loadDatabaseFromBuffer(arrayBuffer);
+            } catch (error) {
+                alert(`Error loading database: ${error.message}\n\nIf using a GCP URL, make sure to run the local server with 'node server.js' for proxy support.`);
+                console.error(error);
+            } finally {
+                loadBtn.disabled = false;
+                loadBtn.textContent = 'Load Database';
+            }
+        }
+
+        async function loadFromFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                await loadDatabaseFromBuffer(arrayBuffer);
+            } catch (error) {
+                alert(`Error loading file: ${error.message}`);
+                console.error(error);
+            }
+        }
+
+        async function loadDatabaseFromBuffer(arrayBuffer) {
+            const SQL = await initSqlJs({
+                locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+            });
+
+            db = new SQL.Database(new Uint8Array(arrayBuffer));
+
+            // Load data
+            loadProjectInfo();
+            loadStats();
+            loadSessions();
+
+            // Show content
+            document.getElementById('sidebarEmpty').style.display = 'none';
+            document.getElementById('sidebarContent').style.display = 'block';
+            document.getElementById('mainEmpty').style.display = 'none';
+            document.getElementById('mainContent').style.display = 'block';
+        }
+
+        function loadProjectInfo() {
+            const result = db.exec("SELECT * FROM projects");
+            if (result.length === 0 || result[0].values.length === 0) return;
+
+            const projectInfo = document.getElementById('projectInfo');
+            let html = '';
+
+            result[0].values.forEach((row, idx) => {
+                const project = {
+                    id: row[0],
+                    git_remote_url: row[1],
+                    name: row[2],
+                    local_path: row[3],
+                    created_at: row[4]
+                };
+
+                const repoUrl = project.git_remote_url || '';
+                const repoName = project.name || extractRepoName(repoUrl);
+                const isGitHub = repoUrl.includes('github.com');
+                const isLocal = repoUrl.startsWith('local://');
+
+                html += `
+                    <div class="project-name" ${idx > 0 ? 'style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-color);"' : ''}>
+                        ${isGitHub ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>' : ''}
+                        ${isGitHub ? `<a href="${repoUrl.replace('.git', '')}" target="_blank">${escapeHtml(repoName)}</a>` : escapeHtml(repoName)}
+                    </div>
+                `;
+            });
+
+            // Add project count if multiple
+            if (result[0].values.length > 1) {
+                html = `<div style="font-size: 11px; color: var(--text-muted); margin-bottom: 8px;">${result[0].values.length} projects</div>` + html;
+            }
+
+            projectInfo.innerHTML = html;
+        }
+
+        function loadStats() {
+            const statsInfo = document.getElementById('statsInfo');
+
+            // Get counts by source
+            const humanCount = db.exec("SELECT COUNT(*) FROM diffs WHERE source = 'human'")[0]?.values[0][0] || 0;
+            const agentCount = db.exec("SELECT COUNT(*) FROM diffs WHERE source = 'agent'")[0]?.values[0][0] || 0;
+            const tabCount = db.exec("SELECT COUNT(*) FROM diffs WHERE source = 'tab-completion'")[0]?.values[0][0] || 0;
+            const totalCount = humanCount + agentCount + tabCount;
+
+            // Get lines stats
+            const linesResult = db.exec("SELECT SUM(lines_added), SUM(lines_removed) FROM diffs");
+            const linesAdded = linesResult[0]?.values[0][0] || 0;
+            const linesRemoved = linesResult[0]?.values[0][1] || 0;
+
+            // Get unique files
+            const filesResult = db.exec("SELECT COUNT(DISTINCT file_path) FROM diffs");
+            const uniqueFiles = filesResult[0]?.values[0][0] || 0;
+
+            statsInfo.innerHTML = `
+                <div class="stat-row">
+                    <span class="stat-label">Total Changes</span>
+                    <span class="stat-value">${totalCount}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Human</span>
+                    <span class="stat-value human">${humanCount}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Agent</span>
+                    <span class="stat-value agent">${agentCount}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Tab Completion</span>
+                    <span class="stat-value tab">${tabCount}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Lines Added</span>
+                    <span class="stat-value" style="color: var(--accent-green);">+${linesAdded}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Lines Removed</span>
+                    <span class="stat-value" style="color: var(--accent-red);">-${linesRemoved}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Files Changed</span>
+                    <span class="stat-value">${uniqueFiles}</span>
+                </div>
+            `;
+        }
+
+        function loadSessions() {
+            // First get all sessions
+            const sessionsResult = db.exec(`SELECT * FROM sessions ORDER BY started_at DESC`);
+
+            if (sessionsResult.length === 0 || sessionsResult[0].values.length === 0) {
+                document.getElementById('sessionList').innerHTML = '<div style="padding: 16px; color: var(--text-muted);">No sessions found</div>';
+                return;
+            }
+
+            // Then get diff counts per session
+            const countsResult = db.exec(`
+                SELECT session_id,
+                       COUNT(*) as diff_count,
+                       SUM(CASE WHEN source = 'agent' THEN 1 ELSE 0 END) as agent_count
+                FROM diffs
+                GROUP BY session_id
+            `);
+
+            // Build a map of session_id -> counts
+            const countsMap = {};
+            if (countsResult.length > 0) {
+                countsResult[0].values.forEach(row => {
+                    countsMap[row[0]] = { diff_count: row[1] || 0, agent_count: row[2] || 0 };
+                });
+            }
+
+            const sessionList = document.getElementById('sessionList');
+            sessionList.innerHTML = '';
+
+            sessionsResult[0].values.forEach((row, index) => {
+                const sessionId = row[0];
+                const counts = countsMap[sessionId] || { diff_count: 0, agent_count: 0 };
+
+                const session = {
+                    id: sessionId,
+                    project_id: row[1],
+                    started_at: row[2],
+                    ended_at: row[3],
+                    diff_count: counts.diff_count,
+                    agent_count: counts.agent_count
+                };
+
+                const date = new Date(session.started_at);
+                const item = document.createElement('div');
+                item.className = `session-item${index === 0 ? ' active' : ''}`;
+                item.dataset.sessionId = session.id;
+                item.onclick = function() { selectSession(session.id, this); };
+                item.innerHTML = `
+                    <div class="session-date">${date.toLocaleDateString()} ${date.toLocaleTimeString()}</div>
+                    <div class="session-stats">${session.diff_count} changes, ${session.agent_count} agent</div>
+                `;
+                sessionList.appendChild(item);
+
+                if (index === 0) {
+                    selectSession(session.id, item);
+                }
+            });
+        }
+
+        function selectSession(sessionId, element) {
+            currentSessionId = sessionId;
+
+            // Update active state
+            document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+            if (element) {
+                element.classList.add('active');
+            } else {
+                // Fallback: find by data attribute
+                const item = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+                if (item) item.classList.add('active');
+            }
+
+            // Load diffs for this session
+            loadDiffs(sessionId);
+        }
+
+        function loadDiffs(sessionId) {
+            const result = db.exec(`
+                SELECT * FROM diffs
+                WHERE session_id = ?
+                ORDER BY timestamp ASC
+            `, [sessionId]);
+
+            if (result.length === 0) {
+                allDiffs = [];
+                document.getElementById('timeline').innerHTML = '<div class="empty-state"><p>No changes in this session</p></div>';
+                return;
+            }
+
+            // Column order from schema:
+            // 0:id, 1:session_id, 2:source, 3:file_path, 4:diff, 5:lines_added,
+            // 6:lines_removed, 7:commit_id, 8:timestamp, 9:agent_subtype,
+            // 10:agent_model, 11:agent_prompt, 12:agent_response, 13:agent_thinking,
+            // 14:agent_tool_usage, 15:agent_input_tokens, 16:agent_output_tokens
+            allDiffs = result[0].values.map(row => ({
+                id: row[0],
+                session_id: row[1],
+                source: row[2],
+                file_path: row[3],
+                diff: row[4] || '',
+                lines_added: row[5] || 0,
+                lines_removed: row[6] || 0,
+                commit_id: row[7],
+                timestamp: row[8],
+                agent_subtype: row[9],
+                agent_model: row[10],
+                agent_prompt: row[11],
+                agent_response: row[12],
+                agent_thinking: row[13],
+                agent_tool_usage: row[14],
+                agent_input_tokens: row[15] || 0,
+                agent_output_tokens: row[16] || 0
+            }));
+
+            renderTimeline(allDiffs);
+        }
+
+        function filterTimeline() {
+            const filter = document.getElementById('sourceFilter').value;
+            const filtered = filter === 'all' ? allDiffs : allDiffs.filter(d => d.source === filter);
+            renderTimeline(filtered);
+        }
+
+        function renderTimeline(diffs) {
+            const timeline = document.getElementById('timeline');
+            timeline.innerHTML = '';
+
+            diffs.forEach(diff => {
+                const time = new Date(diff.timestamp);
+                const fileName = diff.file_path.split('/').pop();
+                const item = document.createElement('div');
+                item.className = `timeline-item${selectedDiffId === diff.id ? ' selected' : ''}`;
+                item.onclick = () => selectDiff(diff);
+
+                const sourceLabel = diff.source === 'agent' && diff.agent_subtype
+                    ? `Agent (${diff.agent_subtype})`
+                    : diff.source.charAt(0).toUpperCase() + diff.source.slice(1).replace('-', ' ');
+
+                item.innerHTML = `
+                    <div class="timeline-dot ${diff.source}"></div>
+                    <div class="timeline-content">
+                        <div class="timeline-header">
+                            <span class="timeline-source ${diff.source}">${sourceLabel}</span>
+                            <span class="timeline-time">${time.toLocaleTimeString()}</span>
+                        </div>
+                        <div class="timeline-file" title="${diff.file_path}">${fileName}</div>
+                        <div class="timeline-meta">
+                            <span style="color: var(--accent-green);">+${diff.lines_added}</span>
+                            <span style="color: var(--accent-red);">-${diff.lines_removed}</span>
+                            ${diff.agent_model ? `<span style="color: var(--accent-purple);">${diff.agent_model}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+                timeline.appendChild(item);
+            });
+        }
+
+        function selectDiff(diff) {
+            selectedDiffId = diff.id;
+
+            // Update timeline selection
+            document.querySelectorAll('.timeline-item').forEach(el => el.classList.remove('selected'));
+            event?.target?.closest('.timeline-item')?.classList.add('selected');
+
+            // Show detail panel
+            document.getElementById('detailPanel').style.display = 'block';
+            document.getElementById('detailFileName').textContent = diff.file_path;
+
+            // Show/hide tabs based on source
+            const interactionTab = document.getElementById('interactionTab');
+            const diagramTab = document.getElementById('diagramTab');
+            if (diff.source === 'agent') {
+                interactionTab.style.display = 'block';
+                diagramTab.style.display = 'block';
+            } else {
+                interactionTab.style.display = 'none';
+                diagramTab.style.display = 'none';
+                switchTab('diff');
+            }
+
+            // Render commit info
+            renderCommitInfo(diff);
+
+            // Render diff
+            renderDiff(diff);
+
+            // Render interaction panel if agent
+            if (diff.source === 'agent') {
+                renderInteractionPanel(diff);
+                renderDiagram(diff);
+            }
+        }
+
+        function renderCommitInfo(diff) {
+            const commitInfo = document.getElementById('commitInfo');
+            if (!diff.commit_id) {
+                commitInfo.innerHTML = '';
+                return;
+            }
+
+            // Try to get repo URL
+            const projectResult = db.exec("SELECT git_remote_url FROM projects LIMIT 1");
+            const repoUrl = projectResult[0]?.values[0][0] || '';
+            const isGitHub = repoUrl.includes('github.com');
+            const cleanRepoUrl = repoUrl.replace('.git', '');
+
+            if (isGitHub) {
+                commitInfo.innerHTML = `
+                    <a href="${cleanRepoUrl}/commit/${diff.commit_id}" target="_blank" class="commit-link">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="4"></circle>
+                            <line x1="1.05" y1="12" x2="7" y2="12"></line>
+                            <line x1="17.01" y1="12" x2="22.96" y2="12"></line>
+                        </svg>
+                        ${diff.commit_id.substring(0, 7)}
+                    </a>
+                `;
+            } else {
+                commitInfo.innerHTML = `
+                    <span class="commit-link">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="4"></circle>
+                            <line x1="1.05" y1="12" x2="7" y2="12"></line>
+                            <line x1="17.01" y1="12" x2="22.96" y2="12"></line>
+                        </svg>
+                        ${diff.commit_id.substring(0, 7)}
+                    </span>
+                `;
+            }
+        }
+
+        function renderDiff(diff) {
+            const viewer = document.getElementById('diffViewer');
+            const diffText = diff.diff || '';
+            const lines = diffText.split('\n');
+            const totalChanges = (diff.lines_added || 0) + (diff.lines_removed || 0);
+            const isLarge = lines.length > 20;
+            const diffId = `diff-${diff.id}`;
+
+            let html = `
+                <div class="diff-file-header">
+                    <span class="diff-file-path">${escapeHtml(diff.file_path)}</span>
+                    <div class="diff-stats">
+                        <span class="additions">+${diff.lines_added || 0}</span>
+                        <span class="deletions">-${diff.lines_removed || 0}</span>
+                        ${isLarge ? `<button class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; margin-left: 8px;" onclick="toggleDiffExpand('${diffId}')">
+                            <span id="${diffId}-btn">Expand</span>
+                        </button>` : ''}
+                    </div>
+                </div>
+            `;
+
+            if (!diffText.trim()) {
+                html += '<div class="diff-body"><div class="diff-line"><span class="diff-line-number"></span><span class="diff-line-content" style="color: var(--text-muted);">(No diff content)</span></div></div>';
+                viewer.innerHTML = html;
+                return;
+            }
+
+            // Handle special markers
+            const isFileCreated = diffText.startsWith('[FILE CREATED]');
+            const isFileDeleted = diffText.startsWith('[FILE DELETED]');
+
+            if (isFileDeleted && lines.length <= 1) {
+                html += `<div class="diff-body"><div class="diff-line deletion"><span class="diff-line-number"></span><span class="diff-line-content" style="color: var(--accent-red); font-style: italic;">File deleted</span></div></div>`;
+                viewer.innerHTML = html;
+                return;
+            }
+
+            // Start diff body with optional collapse
+            html += `<div class="diff-body" id="${diffId}" style="${isLarge ? 'max-height: 300px; overflow: hidden;' : ''}">`;
+
+            // Add file created/deleted header if applicable
+            if (isFileCreated) {
+                html += `<div class="diff-line addition"><span class="diff-line-number"></span><span class="diff-line-content" style="color: var(--accent-green); font-style: italic;">New file</span></div>`;
+            } else if (isFileDeleted) {
+                html += `<div class="diff-line deletion"><span class="diff-line-number"></span><span class="diff-line-content" style="color: var(--accent-red); font-style: italic;">File deleted</span></div>`;
+            }
+
+            let lineNum = 1;
+            let newLineNum = 1;
+
+            lines.forEach((line, idx) => {
+                // Skip the [FILE CREATED] or [FILE DELETED] marker line
+                if (idx === 0 && (line.startsWith('[FILE CREATED]') || line.startsWith('[FILE DELETED]'))) {
+                    return;
+                }
+
+                if (line.startsWith('@@')) {
+                    html += `<div class="diff-hunk-header">${escapeHtml(line)}</div>`;
+                    // Extract starting line numbers: @@ -oldStart,oldCount +newStart,newCount @@
+                    const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)/);
+                    if (match) {
+                        lineNum = parseInt(match[1]);
+                        newLineNum = parseInt(match[2]);
+                    }
+                } else if (line.startsWith('+')) {
+                    html += `<div class="diff-line addition">
+                        <span class="diff-line-number">${newLineNum}</span>
+                        <span class="diff-line-content">${escapeHtml(line.substring(1)) || '&nbsp;'}</span>
+                    </div>`;
+                    newLineNum++;
+                } else if (line.startsWith('-')) {
+                    html += `<div class="diff-line deletion">
+                        <span class="diff-line-number">${lineNum}</span>
+                        <span class="diff-line-content">${escapeHtml(line.substring(1)) || '&nbsp;'}</span>
+                    </div>`;
+                    lineNum++;
+                } else if (line.startsWith(' ')) {
+                    // Context line with space prefix
+                    html += `<div class="diff-line">
+                        <span class="diff-line-number">${newLineNum}</span>
+                        <span class="diff-line-content">${escapeHtml(line.substring(1)) || '&nbsp;'}</span>
+                    </div>`;
+                    lineNum++;
+                    newLineNum++;
+                } else if (line.trim() !== '') {
+                    // Handle lines without standard prefix (treat as info)
+                    html += `<div class="diff-line">
+                        <span class="diff-line-number"></span>
+                        <span class="diff-line-content" style="color: var(--text-muted);">${escapeHtml(line)}</span>
+                    </div>`;
+                }
+            });
+
+            html += '</div>'; // Close diff-body
+
+            if (isLarge) {
+                html += `<div class="diff-expand-gradient" id="${diffId}-gradient"></div>`;
+            }
+
+            viewer.innerHTML = html;
+        }
+
+        function toggleDiffExpand(diffId) {
+            const diffBody = document.getElementById(diffId);
+            const btn = document.getElementById(diffId + '-btn');
+            const gradient = document.getElementById(diffId + '-gradient');
+
+            if (diffBody.style.maxHeight) {
+                diffBody.style.maxHeight = '';
+                diffBody.style.overflow = '';
+                btn.textContent = 'Collapse';
+                if (gradient) gradient.style.display = 'none';
+            } else {
+                diffBody.style.maxHeight = '300px';
+                diffBody.style.overflow = 'hidden';
+                btn.textContent = 'Expand';
+                if (gradient) gradient.style.display = '';
+            }
+        }
+
+        function renderInteractionPanel(diff) {
+            const panel = document.getElementById('interactionPanel');
+
+            let toolUsageHtml = '';
+            if (diff.agent_tool_usage) {
+                try {
+                    const tools = JSON.parse(diff.agent_tool_usage);
+                    if (Array.isArray(tools) && tools.length > 0) {
+                        toolUsageHtml = `
+                            <div class="interaction-section full-width">
+                                <div class="interaction-header">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+                                    </svg>
+                                    Tool Usage
+                                </div>
+                                <div class="interaction-body">
+                                    <div class="tool-usage-list">
+                                        ${tools.map(tool => `
+                                            <div class="tool-item">
+                                                <div class="tool-name">${tool.name || 'Unknown Tool'}</div>
+                                                ${tool.args ? `<div class="tool-args">${escapeHtml(JSON.stringify(tool.args, null, 2))}</div>` : ''}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                } catch (e) {
+                    console.error('Error parsing tool usage:', e);
+                }
+            }
+
+            panel.innerHTML = `
+                <div class="interaction-section">
+                    <div class="interaction-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
+                        Model & Tokens
+                    </div>
+                    <div class="interaction-body">
+                        ${diff.agent_model ? `<div class="model-badge">${diff.agent_model}</div>` : '<span style="color: var(--text-muted);">Model not recorded</span>'}
+                        <div class="token-stats">
+                            <div class="token-stat">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="4 17 10 11 4 5"></polyline>
+                                    <line x1="12" y1="19" x2="20" y2="19"></line>
+                                </svg>
+                                Input: ${diff.agent_input_tokens?.toLocaleString() || 0}
+                            </div>
+                            <div class="token-stat">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="15 18 9 12 15 6"></polyline>
+                                </svg>
+                                Output: ${diff.agent_output_tokens?.toLocaleString() || 0}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="interaction-section">
+                    <div class="interaction-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                        User Prompt
+                    </div>
+                    <div class="interaction-body">
+                        <pre>${diff.agent_prompt ? escapeHtml(diff.agent_prompt) : '<span style="color: var(--text-muted);">No prompt recorded</span>'}</pre>
+                    </div>
+                </div>
+                <div class="interaction-section full-width">
+                    <div class="interaction-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        Agent Response
+                    </div>
+                    <div class="interaction-body" style="max-height: 400px;">
+                        <pre>${diff.agent_response ? escapeHtml(diff.agent_response) : '<span style="color: var(--text-muted);">No response recorded</span>'}</pre>
+                    </div>
+                </div>
+                ${diff.agent_thinking ? `
+                    <div class="interaction-section full-width">
+                        <div class="interaction-header">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="16" x2="12" y2="12"></line>
+                                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                            </svg>
+                            Extended Thinking
+                        </div>
+                        <div class="interaction-body" style="max-height: 400px;">
+                            <pre>${escapeHtml(diff.agent_thinking)}</pre>
+                        </div>
+                    </div>
+                ` : ''}
+                ${toolUsageHtml}
+            `;
+        }
+
+        function renderDiagram(diff) {
+            const viewer = document.getElementById('diagramViewer');
+
+            const promptPreview = diff.agent_prompt
+                ? (diff.agent_prompt.length > 50 ? diff.agent_prompt.substring(0, 50) + '...' : diff.agent_prompt)
+                : 'No prompt';
+
+            const fileName = diff.file_path.split('/').pop();
+
+            viewer.innerHTML = `
+                <div class="interaction-flow">
+                    <div class="flow-node user">
+                        <div class="flow-node-label">User</div>
+                        <div class="flow-node-content">${escapeHtml(promptPreview)}</div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-node agent">
+                        <div class="flow-node-label">Agent (${diff.agent_model || 'Unknown'})</div>
+                        <div class="flow-node-content">
+                            ${diff.agent_input_tokens?.toLocaleString() || 0} in → ${diff.agent_output_tokens?.toLocaleString() || 0} out
+                        </div>
+                    </div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-node code">
+                        <div class="flow-node-label">Code Change</div>
+                        <div class="flow-node-content">
+                            ${fileName}<br>
+                            <span style="color: var(--accent-green);">+${diff.lines_added}</span>
+                            <span style="color: var(--accent-red);">-${diff.lines_removed}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            document.querySelector(`.tab[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`${tabName}Content`).classList.add('active');
+        }
+
+        function rowToObject(result) {
+            const obj = {};
+            result.columns.forEach((col, i) => {
+                obj[col] = result.values[0][i];
+            });
+            return obj;
+        }
+
+        function extractRepoName(url) {
+            if (!url) return 'Unknown Project';
+            const match = url.match(/\/([^\/]+?)(\.git)?$/);
+            return match ? match[1] : url;
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Check URL params on load
+        window.addEventListener('DOMContentLoaded', () => {
+            const params = new URLSearchParams(window.location.search);
+            const dbUrl = params.get('db');
+            if (dbUrl) {
+                document.getElementById('dbUrl').value = dbUrl;
+                loadDatabase();
+            }
+        });
+    </script>
+</body>
+</html>
